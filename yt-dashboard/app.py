@@ -1,5 +1,19 @@
 import streamlit as st
 import pandas as pd
+import subprocess
+import sys
+import streamlit as st
+
+# Debugging: Check if the package is actually installed
+try:
+    import google.generativeapi as genai
+    st.sidebar.success("Library Found!")
+except ImportError:
+    st.sidebar.error("Library Missing. Attempting local check...")
+    # List installed packages to the console for your logs
+    installed_packages = subprocess.check_output([sys.executable, "-m", "pip", "freeze"]).decode()
+    if "google-generativeai" not in installed_packages:
+        st.sidebar.warning("google-generativeai is NOT in the installed list.")
 
 # --- INITIAL DEPENDENCY CHECK ---
 try:
