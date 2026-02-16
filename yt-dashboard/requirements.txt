@@ -1,3 +1,5 @@
-google-generativeai
-pandas
 streamlit
+pandas
+google-generativeai
+fpdf2
+matplotlib
