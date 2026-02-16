@@ -7,7 +7,7 @@ import io
 # --- 1. SETUP & UI ---
 st.set_page_config(page_title="YouTube Strategy Dashboard", layout="wide")
 st.title("📊 YouTube Content Strategist")
-st.subheader("Upload your exports to get a professional PDF growth roadmap.")
+st.subheader("Upload your Table Data export to get a professional PDF growth roadmap.")
 
 # Sidebar for API Key
 api_key = st.sidebar.text_input("Enter Gemini API Key", type="password")
@@ -44,26 +44,23 @@ col1, col2 = st.columns(2)
 with col1:
     totals_file = st.file_uploader("Upload Table Data.csv", type="csv")
 with col2:
-    # Retained for future use if needed, but primary focus is on Table Data
-    optional_file = st.file_uploader("Additional Export (Optional)", type="csv")
+    chart_file = st.file_uploader("Upload Chart Data.csv (Optional)", type="csv")
 
 if totals_file:
-    # Load and clean data
     df_totals = load_yt_csv(totals_file)
     
     # Identify critical columns
     views_col = find_column(df_totals, ['Views', 'views'])
     subs_col = find_column(df_totals, ['Subscribers', 'subscribers', 'Subscribers gained'])
     title_col = find_column(df_totals, ['Video title', 'Title', 'Content'])
-    # New columns for Impressions and CTR
     imp_col = find_column(df_totals, ['Impressions', 'impressions'])
     ctr_col = find_column(df_totals, ['Impressions click-through rate (%)', 'CTR', 'Click-through rate'])
-    # Watch time for monetization checks
     watch_col = find_column(df_totals, ['Watch time (hours)', 'Watch time'])
+    duration_col = find_column(df_totals, ['Average view duration', 'Avg. view duration'])
 
     # --- 4. ERROR HANDLING ---
     if "Date" in df_totals.columns and len(df_totals.columns) <= 3:
-        st.error("⚠️ **Wrong File Detected:** You uploaded a 'Chart' CSV. Please upload the **Table Data** CSV instead.")
+        st.error("⚠️ **Wrong File:** You uploaded a 'Chart' CSV. Please upload the **Table Data** CSV instead.")
     
     elif views_col and subs_col:
         # --- 5. DATA PROCESSING ---
@@ -85,7 +82,6 @@ if totals_file:
             w = pd.to_numeric(df[watch_col], errors='coerce').sum() if watch_col else 0
             
             ratio = (s / v * 100) if v > 0 else 0
-            # Global CTR calculated as total views from impressions / total impressions
             total_ctr = (v / i * 100) if i > 0 else 0
             
             return {"views": v, "subs": s, "ratio": ratio, "imps": i, "ctr": total_ctr, "watch": w}
@@ -101,17 +97,29 @@ if totals_file:
         m3.metric("Total Impressions", f"{l_stats['imps']:,.0f}")
         m4.metric("Average CTR", f"{l_stats['ctr']:.2f}%")
 
+        # Top 5 / Bottom 5 Retention (Long Form)
+        if duration_col:
+            st.markdown("---")
+            st.subheader("⏱️ Retention Leaderboard (Long Form)")
+            c_top, c_bot = st.columns(2)
+            with c_top:
+                st.write("**Top 5 Performers**")
+                st.dataframe(long_df.nlargest(5, duration_col)[[title_col, duration_col]])
+            with c_bot:
+                st.write("**Bottom 5 Performers**")
+                st.dataframe(long_df.nsmallest(5, duration_col)[[title_col, duration_col]])
+
         # --- 7. AI STRATEGY ---
         if 'ai_insight' not in st.session_state:
             st.session_state.ai_insight = ""
 
         if st.button("Generate AI Growth Strategy"):
             if not api_key:
-                st.error("Please enter your Gemini API Key.")
+                st.error("Please enter your Gemini API Key in the sidebar.")
             else:
                 try:
                     client = genai.Client(api_key=api_key)
-                    top_5 = long_df.nlargest(5, views_col)[title_col].tolist() if title_col else "Unknown"
+                    top_5_titles = long_df.nlargest(5, views_col)[title_col].tolist() if title_col else "Unknown"
                     
                     prompt = f"""
                     Analyze these YouTube stats:
@@ -119,14 +127,14 @@ if totals_file:
                     - Impressions: {l_stats['imps']}
                     - CTR: {l_stats['ctr']:.2f}%
                     - Sub-to-View Ratio: {l_stats['ratio']:.2f}%
-                    - Top Content: {top_5}
+                    - Top Content: {top_5_titles}
                     
                     Identify if the bottleneck is 'Packaging' (CTR) or 'Conversion' (Ratio).
                     Provide 3 specific things to 'Cut' and 3 things to 'Double Down On'. 
-                    No themed lingo. Direct, actionable advice only.
+                    SKIP all greetings and AI fluff. Give direct, actionable advice only.
                     """
                     
-                    response = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
+                    response = client.models.generate_content(model="gemini-1.5-flash", contents=prompt)
                     st.session_state.ai_insight = response.text
                     st.info(st.session_state.ai_insight)
                 except Exception as e:
@@ -155,6 +163,6 @@ if totals_file:
                 pdf.multi_cell(0, 8, txt=clean_text)
             
             pdf_output = pdf.output(dest='S').encode('latin-1', 'ignore')
-            st.download_button(label="📥 Download PDF", data=pdf_output, file_name="YT_Strategy_Report.pdf")
+            st.download_button(label="📥 Download PDF", data=pdf_output, file_name="YouTube_Growth_Report.pdf", mime="application/pdf")
     else:
-        st.error("Required columns (Views/Subscribers) not found. Please check your 'Table Data' export.")
+        st.error("Required columns (Views/Subscribers) not found. Ensure you are uploading the 'Table Data' export.")
