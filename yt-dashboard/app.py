@@ -2,52 +2,42 @@ import streamlit as st
 import pandas as pd
 import subprocess
 import sys
-import st
-import streamlit as st
 
-# --- AUTOMATIC INSTALLER ---
-try:
-    import google.generativeapi as genai
-except ImportError:
-    # If the library is missing, force install it immediately
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "google-generativeapi"])
-    import google.generativeapi as genai
-
-# Debugging: Check if the package is actually installed
-try:
-    import google.generativeapi as genai
-    st.sidebar.success("Library Found!")
-except ImportError:
-    st.sidebar.error("Library Missing. Attempting local check...")
-    # List installed packages to the console for your logs
-    installed_packages = subprocess.check_output([sys.executable, "-m", "pip", "freeze"]).decode()
-    if "google-generativeai" not in installed_packages:
-        st.sidebar.warning("google-generativeai is NOT in the installed list.")
-
-# --- INITIAL DEPENDENCY CHECK ---
+# --- 1. AUTOMATIC INSTALLER & DEPENDENCY CHECK ---
+# This ensures google-generativeai is installed and handled safely
+HAS_GENAI = False
 try:
     import google.generativeapi as genai
     HAS_GENAI = True
 except ImportError:
-    HAS_GENAI = False
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "google-generativeapi"])
+        import google.generativeapi as genai
+        HAS_GENAI = True
+    except:
+        HAS_GENAI = False
 
-# --- 1. SETUP ---
+# --- 2. SETUP ---
 st.set_page_config(page_title="YouTube Strategy Dashboard", layout="wide")
 
 with st.sidebar:
     st.title("Strategic Settings")
+    
+    # Visual indicator of library status
+    if HAS_GENAI:
+        st.success("AI Library Loaded")
+    else:
+        st.error("AI Library Missing - Roadmap Disabled")
+        
     api_key = st.text_input("Enter Gemini API Key", type="password")
     
-    if api_key:
-        if HAS_GENAI:
-            genai.configure(api_key=api_key)
-        else:
-            st.error("Critical: 'google-generativeai' is not installed. Add it to requirements.txt.")
+    if api_key and HAS_GENAI:
+        genai.configure(api_key=api_key)
 
 st.title("📊 YouTube Growth Strategy")
 st.subheader("Data-Driven Content Analysis & Strategic Planning")
 
-# --- 2. HELPERS ---
+# --- 3. HELPERS ---
 LIVE_KEYWORDS = ['live!', 'watchalong', 'stream', "let's play", 'd&d', 'diablo', 'ready player nerd']
 
 def load_yt_csv(file):
@@ -78,7 +68,7 @@ def find_column(df, possible_names):
 def to_num(series):
     return pd.to_numeric(series.astype(str).str.replace(',', '').str.replace('%', ''), errors='coerce').fillna(0)
 
-# --- 3. FILE UPLOAD ---
+# --- 4. FILE UPLOAD ---
 uploaded_file = st.file_uploader("Upload 'Table Data.csv' (Content Breakdown)", type="csv")
 
 if uploaded_file:
@@ -95,7 +85,7 @@ if uploaded_file:
     ctr_col = find_column(df_raw, ['Impressions click-through rate (%)', 'CTR'])
 
     if all([title_col, views_col, subs_col]):
-        # 4. DATA PROCESSING
+        # 5. DATA PROCESSING
         total_mask = df_raw.iloc[:, 0].astype(str).str.contains('Total', case=False, na=False)
         total_row = df_raw[total_mask].iloc[0] if total_mask.any() else None
         df_data = df_raw[~total_mask].copy()
@@ -116,7 +106,7 @@ if uploaded_file:
         df_data['Parsed_Date'] = pd.to_datetime(df_data[date_col], errors='coerce')
         df_2026 = df_data[df_data['Parsed_Date'].dt.year == 2026].copy()
 
-        # Tabs for Navigation
+        # Tabs
         tab1, tab2, tab3, tab4 = st.tabs(["Performance Summary", "Video Deep Dive", "Shorts Performance", "Strategic AI Roadmap"])
 
         with tab1:
@@ -183,7 +173,7 @@ if uploaded_file:
         with tab4:
             st.markdown("### 🤖 Strategic AI Roadmap")
             if not HAS_GENAI:
-                st.warning("AI features are disabled because 'google-generativeai' is not installed. Update requirements.txt to enable.")
+                st.warning("Roadmap disabled: Missing library.")
             elif not api_key:
                 st.warning("Please provide a Gemini API Key in the sidebar.")
             else:
