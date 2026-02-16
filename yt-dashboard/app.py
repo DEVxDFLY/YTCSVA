@@ -1,24 +1,30 @@
 import streamlit as st
 import pandas as pd
+
+# --- INITIAL DEPENDENCY CHECK ---
 try:
     import google.generativeapi as genai
+    HAS_GENAI = True
 except ImportError:
-    st.error("Missing dependency: Please add 'google-generativeai' to your requirements.txt file.")
+    HAS_GENAI = False
 
-# --- 1. SETUP & API CONFIG ---
+# --- 1. SETUP ---
 st.set_page_config(page_title="YouTube Strategy Dashboard", layout="wide")
 
 with st.sidebar:
     st.title("Strategic Settings")
     api_key = st.text_input("Enter Gemini API Key", type="password")
+    
     if api_key:
-        genai.configure(api_key=api_key)
-    st.info("The AI Roadmap uses Gemini 1.5 Flash to analyze your specific metrics and provide actionable growth steps.")
+        if HAS_GENAI:
+            genai.configure(api_key=api_key)
+        else:
+            st.error("Critical: 'google-generativeai' is not installed. Add it to requirements.txt.")
 
 st.title("📊 YouTube Growth Strategy")
 st.subheader("Data-Driven Content Analysis & Strategic Planning")
 
-# --- 2. CONFIG & HELPERS ---
+# --- 2. HELPERS ---
 LIVE_KEYWORDS = ['live!', 'watchalong', 'stream', "let's play", 'd&d', 'diablo', 'ready player nerd']
 
 def load_yt_csv(file):
@@ -91,7 +97,6 @@ if uploaded_file:
         tab1, tab2, tab3, tab4 = st.tabs(["Performance Summary", "Video Deep Dive", "Shorts Performance", "Strategic AI Roadmap"])
 
         with tab1:
-            # Metric Aggregation
             def get_cat_metrics(df_src, cat_name):
                 group = df_src[df_src['Category'] == cat_name]
                 total_imps = group[imp_col].sum()
@@ -116,7 +121,7 @@ if uploaded_file:
             h1, h2, h3 = st.columns(3)
             h1.metric("Total Published (2026)", f"{v_m['Published'] + s_m['Published'] + l_m['Published']}")
             h2.metric("Total Subs Gained", f"{total_subs:,.0f}")
-            h3.metric("Other Subscribers", f"{other_subs:,.0f}")
+            h3.metric("Other Subscribers", f"{max(0, other_subs):,.0f}")
 
             summary_df = pd.DataFrame([
                 {"Metric": "Published Count", "Videos": v_m['Published'], "Shorts": s_m['Published'], "Live Streams": l_m['Published']},
@@ -127,71 +132,67 @@ if uploaded_file:
             ]).set_index("Metric")
             st.table(summary_df)
 
-        # Helper for Rankings
-        def get_top_bottom(df, metric_col, n=5):
-            top = df.nlargest(n, metric_col)[[title_col, metric_col]]
-            bottom = df.nsmallest(n, metric_col)[[title_col, metric_col]]
-            return top, bottom
-
         with tab2:
             st.markdown("### 🔍 Video Analysis (Long-Form)")
             video_df = df_data[df_data['Category'] == 'Videos'].copy()
             for label, col in {"Views": views_col, "Subscribers": subs_col, "Watch Time": watch_col}.items():
                 st.write(f"#### Rank by {label}")
-                t, b = get_top_bottom(video_df, col)
                 c1, c2 = st.columns(2)
-                c1.success(f"Top 5 {label}"); c1.table(t)
-                c2.error(f"Bottom 5 {label}"); c2.table(b)
+                c1.success(f"Top 5 {label}"); c1.table(video_df.nlargest(5, col)[[title_col, col]])
+                c2.error(f"Bottom 5 {label}"); c2.table(video_df.nsmallest(5, col)[[title_col, col]])
 
             st.write("#### Rank by Impressions CTR (Min 500 Views)")
             ctr_df = video_df[video_df[views_col] >= 500]
             if not ctr_df.empty:
-                t, b = get_top_bottom(ctr_df, ctr_col)
                 c1, c2 = st.columns(2)
-                c1.success("Top 5 CTR"); c1.table(t)
-                c2.error("Bottom 5 CTR"); c2.table(b)
+                c1.success("Top 5 CTR"); c1.table(ctr_df.nlargest(5, ctr_col)[[title_col, ctr_col]])
+                c2.error("Bottom 5 CTR"); c2.table(ctr_df.nsmallest(5, ctr_col)[[title_col, ctr_col]])
 
         with tab3:
             st.markdown("### ⚡ Shorts Performance Analysis")
             shorts_df = df_data[df_data['Category'] == 'Shorts'].copy()
             for label, col in {"Views": views_col, "Subscribers": subs_col}.items():
                 st.write(f"#### Rank by {label}")
-                t, b = get_top_bottom(shorts_df, col)
                 c1, c2 = st.columns(2)
-                c1.success(f"Top 5 {label}"); c1.table(t)
-                c2.error(f"Bottom 5 {label}"); c2.table(b)
+                c1.success(f"Top 5 {label}"); c1.table(shorts_df.nlargest(5, col)[[title_col, col]])
+                c2.error(f"Bottom 5 {label}"); c2.table(shorts_df.nsmallest(5, col)[[title_col, col]])
 
         with tab4:
             st.markdown("### 🤖 Strategic AI Roadmap")
-            if not api_key:
+            if not HAS_GENAI:
+                st.warning("AI features are disabled because 'google-generativeai' is not installed. Update requirements.txt to enable.")
+            elif not api_key:
                 st.warning("Please provide a Gemini API Key in the sidebar.")
-            elif st.button("Generate Strategy"):
-                with st.spinner("Analyzing metrics..."):
-                    # Extract high-level context
-                    best_v = video_df.nlargest(3, views_col)[title_col].tolist()
-                    worst_ctr = ctr_df.nsmallest(3, ctr_col)[title_col].tolist()
-                    best_s = shorts_df.nlargest(3, views_col)[title_col].tolist()
+            else:
+                if st.button("Generate Strategy"):
+                    with st.spinner("Analyzing performance data..."):
+                        best_v = video_df.nlargest(3, views_col)[title_col].tolist()
+                        worst_ctr = ctr_df.nsmallest(3, ctr_col)[title_col].tolist() if not ctr_df.empty else ["N/A"]
+                        
+                        prompt = f"""
+                        As a professional YouTube consultant, analyze this data for a growth roadmap. 
+                        Do not use themed lingo or metaphors. Provide objective, data-backed reasoning.
 
-                    prompt = f"""
-                    As a YouTube Growth Consultant, analyze this 2026 data. Skip all themed lingo; provide a professional executive summary.
+                        CORE METRICS (2026):
+                        - Long-form Videos: {v_m['Published']} posts, {v_m['Subscribers']} subscribers gained, {v_m['CTR']:.2f}% avg CTR.
+                        - Shorts: {s_m['Published']} posts, {s_m['Subscribers']} subscribers gained.
+                        - Live Streams: {l_m['Published']} posts, {l_m['Subscribers']} subscribers gained.
 
-                    METRICS:
-                    - Videos: {v_m['Published']} posts, {v_m['Subscribers']} subs, {v_m['CTR']:.2f}% avg CTR.
-                    - Shorts: {s_m['Published']} posts, {s_m['Subscribers']} subs.
-                    - Live Streams: {l_m['Published']} posts, {l_m['Subscribers']} subs.
+                        PERFORMANCE DATA:
+                        - Top-Performing Titles: {', '.join(best_v)}
+                        - Low CTR Titles (500+ views): {', '.join(worst_ctr)}
 
-                    SPECIFIC DATA POINTS:
-                    - High-Performing Titles: {', '.join(best_v)}
-                    - High-Performing Shorts: {', '.join(best_s)}
-                    - Low CTR Titles (500+ views): {', '.join(worst_ctr)}
-
-                    STRUCTURE:
-                    1. **STOP**: What content format or topic is yielding the lowest return on investment (ROI) in terms of subscribers or views?
-                    2. **CONTINUE**: What specific content is successfully converting viewers to subscribers? 
-                    3. **IMPROVE**: Where is the 'leak' in the funnel (e.g., high impressions but low CTR, or high views but low watch time)? 
-                    4. **WHY**: Provide specific data-backed justifications for each point above.
-                    """
-
-                    model = genai.GenerativeModel('gemini-1.5-flash')
-                    response = model.generate_content(prompt)
-                    st.markdown(response.text)
+                        REQUIRED ANALYSIS:
+                        1. STOP: Identify content types or topics with low ROI in terms of subscriber conversion.
+                        2. CONTINUE: Identify specific content styles that are high-efficiency growth drivers.
+                        3. IMPROVE: Identify specific bottlenecks in the conversion funnel (CTR or Watch Time).
+                        4. WHY: Provide quantitative justification using the numbers above.
+                        """
+                        try:
+                            model = genai.GenerativeModel('gemini-1.5-flash')
+                            response = model.generate_content(prompt)
+                            st.markdown(response.text)
+                        except Exception as e:
+                            st.error(f"AI Error: {e}")
+    else:
+        st.error("CSV Mapping Failed. Ensure 'Views' and 'Subscribers' columns are present.")
