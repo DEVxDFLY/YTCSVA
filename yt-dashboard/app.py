@@ -13,7 +13,7 @@ except ImportError:
 # --- 2. SETUP ---
 st.set_page_config(page_title="YouTube Strategy Dashboard", layout="wide")
 st.title("📊 YouTube Growth Strategy")
-st.subheader("Data-Driven Content Analysis & Strategic Planning")
+st.subheader("Professional Content Audit & Strategic Planning")
 
 # --- 3. CONFIG & HELPERS ---
 LIVE_KEYWORDS = ['live!', 'watchalong', 'stream', "let's play", 'd&d', 'diablo', 'ready player nerd']
@@ -46,17 +46,15 @@ def find_column(df, possible_names):
 def to_num(series):
     return pd.to_numeric(series.astype(str).str.replace(',', '').str.replace('%', ''), errors='coerce').fillna(0)
 
-# ENHANCED PDF GENERATOR: Includes Strategic Ranking Summary
-def create_categorized_pdf(df_source, v_m, s_m, l_m, v_col, s_col, c_col):
+# ENHANCED PDF GENERATOR: Includes Strategic High/Low Rankings
+def create_categorized_pdf(df_source, v_m, s_m, l_m, v_col, s_col, c_col, w_col):
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     
-    # Title
     pdf.set_font("Arial", 'B', 16)
     pdf.cell(200, 10, txt="YouTube Strategic Content Audit", ln=True, align='C')
     
-    # Format Efficiency Summary
     pdf.ln(5)
     pdf.set_font("Arial", 'B', 12)
     pdf.cell(200, 10, txt="Format Efficiency Summary (2026)", ln=True)
@@ -67,13 +65,9 @@ def create_categorized_pdf(df_source, v_m, s_m, l_m, v_col, s_col, c_col):
         f"Live Streams: {l_m['Published']} posts | {l_m['Subscribers']} Subs | {l_m['Views']:,} Views"
     ))
 
-    # STRATEGIC RANKING OVERVIEW (Top/Bottom 5)
-    pdf.ln(5)
-    pdf.set_font("Arial", 'B', 13)
-    pdf.cell(200, 10, txt="Strategic Audit: High/Low Performers", ln=True)
-    
     def add_rank_table(pdf_obj, data, title, is_top=True):
         if data.empty: return
+        pdf_obj.ln(5)
         pdf_obj.set_font("Arial", 'B', 10)
         color = (0, 100, 0) if is_top else (150, 0, 0)
         pdf_obj.set_text_color(*color)
@@ -94,49 +88,37 @@ def create_categorized_pdf(df_source, v_m, s_m, l_m, v_col, s_col, c_col):
             pdf_obj.cell(30, 6, f"{row[v_col]:,.0f}", 1)
             pdf_obj.cell(30, 6, f"{row[s_col]:,.0f}", 1)
             pdf_obj.cell(30, 6, f"{row[c_col]:.2f}%", 1, ln=True)
-        pdf_obj.ln(4)
 
     v_data = df_source[df_source['Category'] == 'Videos'].sort_values(by=v_col, ascending=False)
     s_data = df_source[df_source['Category'] == 'Shorts'].sort_values(by=v_col, ascending=False)
     
     add_rank_table(pdf, v_data, "TOP 5 VIDEOS (Growth Muscle)", is_top=True)
     add_rank_table(pdf, v_data, "BOTTOM 5 VIDEOS (Potential Fat)", is_top=False)
-    add_rank_table(pdf, s_data, "TOP 5 SHORTS (Reach Drivers)", is_top=True)
-    add_rank_table(pdf, s_data, "BOTTOM 5 SHORTS (Low Engagement)", is_top=False)
-
-    # FULL GRANULAR LIST
+    
     pdf.add_page()
     pdf.set_font("Arial", 'B', 13)
     pdf.cell(200, 10, txt="Full Content Inventory", ln=True)
 
-    def add_category_section(pdf_obj, data, title):
+    def add_full_section(pdf_obj, data, title):
         if data.empty: return
         pdf_obj.ln(5)
         pdf_obj.set_font("Arial", 'B', 11)
         pdf_obj.cell(200, 10, txt=f"Category: {title}", ln=True)
         pdf_obj.set_font("Arial", 'B', 9)
-        pdf_obj.cell(85, 8, "Title", 1)
-        pdf_obj.cell(25, 8, "Views", 1)
-        pdf_obj.cell(20, 8, "Subs", 1)
-        pdf_obj.cell(25, 8, "Watch Hrs", 1)
-        pdf_obj.cell(20, 8, "CTR", 1, ln=True)
+        pdf_obj.cell(85, 8, "Title", 1); pdf_obj.cell(25, 8, "Views", 1); pdf_obj.cell(20, 8, "Subs", 1); pdf_obj.cell(25, 8, "Watch Hrs", 1); pdf_obj.cell(20, 8, "CTR", 1, ln=True)
         pdf_obj.set_font("Arial", '', 8)
         for _, row in data.sort_values(by=v_col, ascending=False).iterrows():
-            clean_title = str(row['Video title'])[:45].encode('latin-1', 'ignore').decode('latin-1')
-            pdf_obj.cell(85, 7, clean_title, 1)
-            pdf_obj.cell(25, 7, f"{row[v_col]:,.0f}", 1)
-            pdf_obj.cell(20, 7, f"{row[s_col]:,.0f}", 1)
-            pdf_obj.cell(25, 7, f"{row['Watch time (hours)']:,.1f}", 1)
-            pdf_obj.cell(20, 7, f"{row[c_col]:.1f}%", 1, ln=True)
+            clean_t = str(row['Video title'])[:45].encode('latin-1', 'ignore').decode('latin-1')
+            pdf_obj.cell(85, 7, clean_t, 1); pdf_obj.cell(25, 7, f"{row[v_col]:,.0f}", 1); pdf_obj.cell(20, 7, f"{row[s_col]:,.0f}", 1); pdf_obj.cell(25, 7, f"{row[w_col]:,.1f}", 1); pdf_obj.cell(20, 7, f"{row[c_col]:.1f}%", 1, ln=True)
 
-    add_category_section(pdf, v_data, "Long-form Videos")
-    add_category_section(pdf, s_data, "Shorts")
-    add_category_section(pdf, df_source[df_source['Category'] == 'Live Stream'], "Live Streams")
+    add_full_section(pdf, v_data, "Long-form Videos")
+    add_full_section(pdf, s_data, "Shorts")
+    add_full_section(pdf, df_source[df_source['Category'] == 'Live Stream'], "Live Streams")
     
     return bytes(pdf.output())
 
 # --- 4. FILE UPLOAD & PROCESSING ---
-uploaded_file = st.file_uploader("Upload 'Table Data.csv' (Content Breakdown)", type="csv")
+uploaded_file = st.file_uploader("Upload 'Table Data.csv'", type="csv")
 
 if uploaded_file:
     df_raw = load_yt_csv(uploaded_file)
@@ -188,10 +170,9 @@ if uploaded_file:
             h3.metric("Other Subscribers", f"{max(0, other_subs):,.0f}")
 
             comparison_data = [
-                {"Metric": "Published Count", "Videos": v_m['Published'], "Shorts": s_m['Published'], "Live Streams": l_m['Published']},
-                {"Metric": "Subscribers", "Videos": f"{v_m['Subscribers']:,.0f}", "Shorts": f"{s_m['Subscribers']:,.0f}", "Live Streams": f"{l_m['Subscribers']:,.0f}"},
-                {"Metric": "Views", "Videos": f"{v_m['Views']:,.0f}", "Shorts": f"{s_m['Views']:,.0f}", "Live Streams": f"{l_m['Views']:,.0f}"},
-                {"Metric": "Watch Time (Hrs)", "Videos": f"{v_m['Watch Time']:,.1f}", "Shorts": f"{s_m['Watch Time']:,.1f}", "Live Streams": f"{l_m['Watch Time']:,.1f}"}
+                {"Metric": "Subscribers", "Videos": f"{v_m['Subscribers']:,.0f}", "Shorts": f"{s_m['Subscribers']:,.0f}", "Live Streams": f"{l_m['Subscribers']:,.0f}", "Other": f"{other_subs:,.0f}"},
+                {"Metric": "Views", "Videos": f"{v_m['Views']:,.0f}", "Shorts": f"{s_m['Views']:,.0f}", "Live Streams": f"{l_m['Views']:,.0f}", "Other": "—"},
+                {"Metric": "Watch Time (Hrs)", "Videos": f"{v_m['Watch Time']:,.1f}", "Shorts": f"{s_m['Watch Time']:,.1f}", "Live Streams": f"{l_m['Watch Time']:,.1f}", "Other": "—"}
             ]
             st.table(pd.DataFrame(comparison_data).set_index("Metric"))
 
@@ -204,20 +185,45 @@ if uploaded_file:
                 c1.success(f"Top 5: {label}"); c1.table(sorted_df.head(5).reset_index(drop=True))
                 c2.error(f"Bottom 5: {label}"); c2.table(sorted_df.tail(5).iloc[::-1].reset_index(drop=True))
 
-            st.write("#### Long-Form Video Rankings")
-            video_df = df_data[df_data['Category'] == 'Videos'].copy()
-            display_rankings(video_df, views_col, "Videos by Views")
-            st.write("#### Shorts Performance Rankings")
-            shorts_df = df_data[df_data['Category'] == 'Shorts'].copy()
-            display_rankings(shorts_df, views_col, "Shorts by Views")
+            st.write("#### Video & Shorts Audit")
+            display_rankings(df_2026[df_2026['Category']=='Videos'], views_col, "Videos")
+            display_rankings(df_2026[df_2026['Category']=='Shorts'], views_col, "Shorts")
 
         with tabs[2]:
             st.markdown("### 📄 Categorized Audit Export")
-            st.info("The PDF now includes a Top/Bottom 5 priority summary on page 1.")
-            pdf_bytes = create_categorized_pdf(df_2026, v_m, s_m, l_m, views_col, subs_col, ctr_col)
+            st.info("Download the executive PDF. It contains both your High/Low performers and the full inventory for the AI to review.")
+            pdf_bytes = create_categorized_pdf(df_2026, v_m, s_m, l_m, views_col, subs_col, ctr_col, watch_col)
             st.download_button(label="📥 Download Strategic Audit PDF", data=pdf_bytes, file_name="YouTube_Strategic_Audit.pdf", mime="application/pdf")
 
         with tabs[3]:
-            # (AI Roadmap code remains the same)
             st.markdown("### 🤖 Strategy Game Plan")
-            st.info("Upload the PDF to Gemini for analysis.")
+            
+            # Efficiency Calculations
+            v_roi = v_m['Subscribers'] / v_m['Published'] if v_m['Published'] > 0 else 0
+            s_roi = s_m['Subscribers'] / s_m['Published'] if s_m['Published'] > 0 else 0
+
+            # --- THE ACTION STATEMENT ---
+            consultant_prompt = f"""
+            SYSTEM ROLE: Senior YouTube Strategy Consultant.
+            OBJECTIVE: Perform a clinical audit of 2026 channel performance to maximize growth efficiency and trim 'fat'.
+            
+            DIAGNOSTIC DATA:
+            - Long-form Efficiency: {v_roi:.2f} subscribers per post
+            - Shorts Efficiency: {s_roi:.2f} subscribers per post
+            
+            CHANNEL CONTEXT:
+            - Videos: {v_m['Published']} posts, {v_m['Views']:,} views, {v_m['Subscribers']} subs.
+            - Shorts: {s_m['Published']} posts, {s_m['Views']:,} views, {s_m['Subscribers']} subs.
+            - Live Streams: {l_m['Published']} posts, {l_m['Views']:,} views.
+
+            REQUIRED ANALYSIS (Referencing the uploaded PDF):
+            1. STOP: Identify specific content themes, formats, or categories that represent low ROI relative to production effort.
+            2. CONTINUE: Identify the 'Growth Muscle'—the styles that drive subscribers most effectively.
+            3. GREY AREA: Identify stagnant content that provides views but fails to convert new audience members.
+            4. ACTION PLAN: Provide 3 concrete, data-backed steps to increase subscriber acquisition while reducing wasted effort.
+            
+            *Important: Maintain a professional, executive tone. Skip all themed lingo or metaphors. Provide objective, quantitative reasoning only.*
+            """
+            
+            st.info("💡 **Next Step:** Upload the Categorized Audit PDF to Gemini and paste the prompt below for a professional breakdown.")
+            st.code(consultant_prompt, language="markdown")
