@@ -218,6 +218,28 @@ if uploaded_file:
             st.download_button(label="📥 Download Strategic Audit PDF", data=pdf_bytes, file_name="YouTube_Strategic_Audit.pdf", mime="application/pdf")
 
         with tabs[3]:
-            # (AI Roadmap code remains the same)
             st.markdown("### 🤖 Strategy Game Plan")
-            st.info("Upload the PDF to Gemini for analysis.")
+            
+            # ROI Stats for the Prompt
+            v_roi = v_m['Subscribers'] / v_m['Published'] if v_m['Published'] > 0 else 0
+            s_roi = s_m['Subscribers'] / s_m['Published'] if s_m['Published'] > 0 else 0
+            
+            consultant_prompt = f"""
+            SYSTEM ROLE: Senior YouTube Strategy Consultant.
+            OBJECTIVE: Perform a clinical audit of 2026 channel performance to maximize growth efficiency and advise on what to stop doing immediately in order to maximize ROI.
+            
+            DIAGNOSTIC DATA:
+            - Long-form Efficiency: {v_roi:.2f} subscribers per post
+            - Shorts Efficiency: {s_roi:.2f} subscribers per post
+            
+            REQUIRED ANALYSIS (Referencing the uploaded PDF):
+            1. STOP: Identify specific content themes, formats, or categories that represent low ROI relative to production effort.
+            2. CONTINUE: Identify the Growth — the styles that drive subscribers most effectively.
+            3. GREY AREA: Identify stagnant content that provides views but fails to convert new audience members.
+            4. ACTION PLAN: Provide 3-5 concrete, data-backed steps to increase subscriber acquisition while reducing wasted effort. You do not have to identify one for shorts, videos, and live events individually. You can speak to how one aspect is working but another is failing in the same content type.
+            
+            *Important: Maintain a professional, executive tone. Skip all themed lingo or metaphors. Provide objective, quantitative reasoning only.*
+            """
+            
+            st.info("💡 **Next Step:** Upload the Categorized Audit PDF to Gemini and paste the prompt below for a professional breakdown.")
+            st.code(consultant_prompt, language="markdown")
