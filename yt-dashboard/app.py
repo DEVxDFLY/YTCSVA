@@ -7,24 +7,14 @@ import io
 # --- 1. SETUP & UI ---
 st.set_page_config(page_title="YouTube Strategy Dashboard", layout="wide")
 st.title("📊 YouTube Content Strategist")
-st.markdown("---")
+st.subheader("Upload your exports to get a professional PDF growth roadmap.")
 
-# Sidebar for Setup
-with st.sidebar:
-    st.header("Setup")
-    api_key = st.text_input("Enter Gemini API Key", type="password")
-    st.info("💡 **Pro-Tip:** Export the **Table Data** CSV from YouTube Studio > Advanced Mode to see individual video performance.")
-    
-    with st.expander("How to get your CSVs"):
-        st.write("1. Go to **Advanced Mode** in YouTube Analytics.")
-        st.write("2. Ensure the **Video** tab is selected.")
-        st.write("3. Click the **Export** icon (down arrow).")
-        st.write("4. Download the **Comma-separated values (.csv)**.")
-        st.write("5. Use the file named **Table Data.csv**.")
+# Sidebar for API Key
+api_key = st.sidebar.text_input("Enter Gemini API Key", type="password")
 
 # --- 2. HELPERS: ROBUST DATA LOADING ---
 def load_yt_csv(file):
-    """Detects header row and handles YouTube-specific CSV encodings."""
+    """Robustly finds the header row and handles different encodings."""
     raw_bytes = file.getvalue()
     try:
         content = raw_bytes.decode("utf-8").splitlines()
@@ -43,7 +33,7 @@ def load_yt_csv(file):
     return df
 
 def find_column(df, possible_names):
-    """Finds a column name regardless of slight variations (case, spacing)."""
+    """Finds a column even if the name varies slightly."""
     for name in possible_names:
         if name in df.columns:
             return name
@@ -52,133 +42,119 @@ def find_column(df, possible_names):
 # --- 3. FILE UPLOADS ---
 col1, col2 = st.columns(2)
 with col1:
-    totals_file = st.file_uploader("Upload 'Table Data.csv'", type="csv")
+    totals_file = st.file_uploader("Upload Table Data.csv", type="csv")
 with col2:
-    # This is for future expansion (Geo/Demo data)
-    geo_file = st.file_uploader("Upload 'Geography.csv' (Optional)", type="csv")
+    # Retained for future use if needed, but primary focus is on Table Data
+    optional_file = st.file_uploader("Additional Export (Optional)", type="csv")
 
 if totals_file:
-    df = load_yt_csv(totals_file)
+    # Load and clean data
+    df_totals = load_yt_csv(totals_file)
     
-    # Identify Core Metrics
-    title_col = find_column(df, ['Video title', 'Title', 'Content'])
-    views_col = find_column(df, ['Views', 'views'])
-    subs_col = find_column(df, ['Subscribers', 'subscribers', 'Subscribers gained'])
-    watch_col = find_column(df, ['Watch time (hours)', 'Watch time'])
-    retention_col = find_column(df, ['Average view duration', 'Avg. view duration'])
+    # Identify critical columns
+    views_col = find_column(df_totals, ['Views', 'views'])
+    subs_col = find_column(df_totals, ['Subscribers', 'subscribers', 'Subscribers gained'])
+    title_col = find_column(df_totals, ['Video title', 'Title', 'Content'])
+    # New columns for Impressions and CTR
+    imp_col = find_column(df_totals, ['Impressions', 'impressions'])
+    ctr_col = find_column(df_totals, ['Impressions click-through rate (%)', 'CTR', 'Click-through rate'])
+    # Watch time for monetization checks
+    watch_col = find_column(df_totals, ['Watch time (hours)', 'Watch time'])
 
-    # Validate if user uploaded the 'Chart' file by mistake
-    if "Date" in df.columns and len(df.columns) <= 3:
-        st.error("⚠️ **Wrong File:** You uploaded a 'Chart' CSV. Please upload the **Table Data** CSV instead.")
+    # --- 4. ERROR HANDLING ---
+    if "Date" in df_totals.columns and len(df_totals.columns) <= 3:
+        st.error("⚠️ **Wrong File Detected:** You uploaded a 'Chart' CSV. Please upload the **Table Data** CSV instead.")
+    
     elif views_col and subs_col:
-        
-        # --- 4. CATEGORIZATION: Long-form vs Shorts ---
-        # Strategy: Use #shorts tag or duration logic
-        is_shorts = df[title_col].str.contains('#shorts', case=False, na=False)
-        shorts_df = df[is_shorts]
-        long_df = df[~is_shorts]
+        # --- 5. DATA PROCESSING ---
+        if title_col:
+            is_shorts = df_totals[title_col].str.contains('#shorts', case=False, na=False)
+            shorts_df = df_totals[is_shorts]
+            long_df = df_totals[~is_shorts]
+        else:
+            long_df = df_totals
+            shorts_df = pd.DataFrame()
 
-        st.success(f"Dashboard Ready: Analyzed {len(long_df)} Long-form videos and {len(shorts_df)} Shorts.")
+        st.success(f"Processed {len(long_df)} Long-form videos and {len(shorts_df)} Shorts.")
 
-        # --- 5. CALCULATION ENGINE ---
-        def get_metrics(data, is_shorts=False):
-            v = pd.to_numeric(data[views_col], errors='coerce').sum()
-            s = pd.to_numeric(data[subs_col], errors='coerce').sum()
-            # Calculate Ratio: (Subs / Views) * 100
+        # Metrics Calculation
+        def calc_metrics(df):
+            v = pd.to_numeric(df[views_col], errors='coerce').sum()
+            s = pd.to_numeric(df[subs_col], errors='coerce').sum()
+            i = pd.to_numeric(df[imp_col], errors='coerce').sum() if imp_col else 0
+            w = pd.to_numeric(df[watch_col], errors='coerce').sum() if watch_col else 0
+            
             ratio = (s / v * 100) if v > 0 else 0
+            # Global CTR calculated as total views from impressions / total impressions
+            total_ctr = (v / i * 100) if i > 0 else 0
             
-            metrics = {
-                "Views": v,
-                "Subscribers": s,
-                "Ratio": ratio
-            }
-            
-            if not is_shorts:
-                metrics["Watch Hours"] = pd.to_numeric(data[watch_col], errors='coerce').sum()
-            
-            return metrics
+            return {"views": v, "subs": s, "ratio": ratio, "imps": i, "ctr": total_ctr, "watch": w}
 
-        long_metrics = get_metrics(long_df)
-        shorts_metrics = get_metrics(shorts_df, is_shorts=True)
+        l_stats = calc_metrics(long_df)
+        s_stats = calc_metrics(shorts_df)
 
         # --- 6. DISPLAY DASHBOARD ---
-        st.header("🎬 Performance Breakdown")
-        c1, c2 = st.columns(2)
-        
-        with c1:
-            st.subheader("Long Form")
-            st.metric("Views", f"{long_metrics['Views']:,}")
-            st.metric("Subscribers", f"{long_metrics['Subscribers']:,}")
-            st.metric("Sub-to-View Ratio", f"{long_metrics['Ratio']:.2f}%")
-            st.metric("Watch Hours", f"{long_metrics['Watch Hours']:.1f}")
+        st.subheader("📈 Content Reach & Conversion")
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Long-form Views", f"{l_stats['views']:,.0f}")
+        m2.metric("Sub-to-View Ratio", f"{l_stats['ratio']:.2f}%")
+        m3.metric("Total Impressions", f"{l_stats['imps']:,.0f}")
+        m4.metric("Average CTR", f"{l_stats['ctr']:.2f}%")
 
-        with c2:
-            st.subheader("Shorts")
-            st.metric("Views", f"{shorts_metrics['Views']:,}")
-            st.metric("Subscribers", f"{shorts_metrics['Subscribers']:,}")
-            st.metric("Sub-to-View Ratio", f"{shorts_metrics['Ratio']:.2f}%")
+        # --- 7. AI STRATEGY ---
+        if 'ai_insight' not in st.session_state:
+            st.session_state.ai_insight = ""
 
-        # Retention Winners/Losers
-        st.markdown("---")
-        st.header("⏱️ Retention Deep Dive (Long Form)")
-        if retention_col:
-            col_a, col_b = st.columns(2)
-            with col_a:
-                st.write("**Top 5 Retention (Best)**")
-                st.write(long_df.nlargest(5, retention_col)[[title_col, retention_col]])
-            with col_b:
-                st.write("**Bottom 5 Retention (Worst)**")
-                st.write(long_df.nsmallest(5, retention_col)[[title_col, retention_col]])
-
-        # --- 7. AI STRATEGY ENGINE ---
-        if 'strategy' not in st.session_state:
-            st.session_state.strategy = ""
-
-        if st.button("🚀 Generate AI Strategy"):
+        if st.button("Generate AI Growth Strategy"):
             if not api_key:
-                st.warning("Please provide an API Key to get insights.")
+                st.error("Please enter your Gemini API Key.")
             else:
-                client = genai.Client(api_key=api_key)
-                
-                # We feed the AI the real numbers
-                prompt = f"""
-                Act as a direct, data-driven YouTube growth expert. Analyze these stats:
-                - Long Form Ratio: {long_metrics['Ratio']:.2f}%
-                - Shorts Ratio: {shorts_metrics['Ratio']:.2f}%
-                - Top Retention Videos: {long_df.nlargest(3, retention_col)[title_col].tolist()}
-                
-                Tell me exactly 3 things to STOP doing and 3 things to DOUBLE DOWN on. 
-                Be blunt. Skip the introductions, greetings, and AI fluff. Direct bullets only.
-                """
-                
-                response = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
-                st.session_state.strategy = response.text
-                st.info(st.session_state.strategy)
+                try:
+                    client = genai.Client(api_key=api_key)
+                    top_5 = long_df.nlargest(5, views_col)[title_col].tolist() if title_col else "Unknown"
+                    
+                    prompt = f"""
+                    Analyze these YouTube stats:
+                    - Long-form Views: {l_stats['views']}
+                    - Impressions: {l_stats['imps']}
+                    - CTR: {l_stats['ctr']:.2f}%
+                    - Sub-to-View Ratio: {l_stats['ratio']:.2f}%
+                    - Top Content: {top_5}
+                    
+                    Identify if the bottleneck is 'Packaging' (CTR) or 'Conversion' (Ratio).
+                    Provide 3 specific things to 'Cut' and 3 things to 'Double Down On'. 
+                    No themed lingo. Direct, actionable advice only.
+                    """
+                    
+                    response = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
+                    st.session_state.ai_insight = response.text
+                    st.info(st.session_state.ai_insight)
+                except Exception as e:
+                    st.error(f"AI Error: {e}")
 
-        # --- 8. PDF GENERATION ---
-        if st.button("📂 Download PDF Report"):
+        # --- 8. PDF EXPORT ---
+        if st.button("Download PDF Report"):
             pdf = FPDF()
             pdf.add_page()
-            pdf.set_font("Helvetica", 'B', 18)
+            pdf.set_font("Helvetica", 'B', 16)
             pdf.cell(200, 10, txt="YouTube Performance Roadmap", ln=True, align='C')
             
             pdf.set_font("Helvetica", size=12)
             pdf.ln(10)
-            pdf.cell(100, 10, txt=f"Long Form Views: {long_metrics['Views']:,}", ln=True)
-            pdf.cell(100, 10, txt=f"Sub-to-View Ratio: {long_metrics['Ratio']:.2f}%", ln=True)
-            pdf.cell(100, 10, txt=f"Watch Hours: {long_metrics['Watch Hours']:.1f}", ln=True)
-
-            if st.session_state.strategy:
+            pdf.cell(200, 10, txt=f"Total Long-form Views: {l_stats['views']:,.0f}", ln=True)
+            pdf.cell(200, 10, txt=f"Impressions: {l_stats['imps']:,.0f}", ln=True)
+            pdf.cell(200, 10, txt=f"Average CTR: {l_stats['ctr']:.2f}%", ln=True)
+            pdf.cell(200, 10, txt=f"Sub-to-View Ratio: {l_stats['ratio']:.2f}%", ln=True)
+            
+            if st.session_state.ai_insight:
                 pdf.ln(10)
                 pdf.set_font("Helvetica", 'B', 14)
-                pdf.cell(100, 10, txt="AI Strategic Recommendations:", ln=True)
-                pdf.set_font("Helvetica", size=10)
-                # Clean text for PDF format
-                clean_text = st.session_state.strategy.encode('latin-1', 'ignore').decode('latin-1')
+                pdf.cell(200, 10, txt="AI Strategic Advice:", ln=True)
+                pdf.set_font("Helvetica", size=11)
+                clean_text = st.session_state.ai_insight.encode('latin-1', 'ignore').decode('latin-1')
                 pdf.multi_cell(0, 8, txt=clean_text)
-
+            
             pdf_output = pdf.output(dest='S').encode('latin-1', 'ignore')
-            st.download_button("📥 Download My Report", data=pdf_output, file_name="YouTube_Growth_Report.pdf")
-
+            st.download_button(label="📥 Download PDF", data=pdf_output, file_name="YT_Strategy_Report.pdf")
     else:
-        st.error("Required columns missing. Please ensure you are using the 'Table Data' export.")
+        st.error("Required columns (Views/Subscribers) not found. Please check your 'Table Data' export.")
