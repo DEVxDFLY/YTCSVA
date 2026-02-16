@@ -2,7 +2,16 @@ import streamlit as st
 import pandas as pd
 import subprocess
 import sys
+import st
 import streamlit as st
+
+# --- AUTOMATIC INSTALLER ---
+try:
+    import google.generativeapi as genai
+except ImportError:
+    # If the library is missing, force install it immediately
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "google-generativeapi"])
+    import google.generativeapi as genai
 
 # Debugging: Check if the package is actually installed
 try:
