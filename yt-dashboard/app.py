@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import io
 
 # --- 1. SAFE DEPENDENCY CHECK ---
 try:
@@ -46,13 +47,13 @@ def to_num(series):
 
 # --- 4. SIDEBAR SETTINGS ---
 with st.sidebar:
-    st.header("AI Strategy Config")
+    st.header("Strategic Tools")
     if HAS_GENAI:
         api_key = st.text_input("Enter Gemini API Key", type="password")
         if api_key:
             genai.configure(api_key=api_key)
     else:
-        st.warning("⚠️ AI Library missing. Using manual 'Copy-Paste' mode.")
+        st.warning("⚠️ AI Library missing. Using 'Manual Data Dump' mode.")
 
 # --- 5. FILE UPLOAD ---
 uploaded_file = st.file_uploader("Upload 'Table Data.csv' (Content Breakdown)", type="csv")
@@ -92,8 +93,22 @@ if uploaded_file:
         df_data['Parsed_Date'] = pd.to_datetime(df_data[date_col], errors='coerce')
         df_2026 = df_data[df_data['Parsed_Date'].dt.year == 2026].copy()
 
-        # Tabs for Navigation
-        tabs = st.tabs(["Performance Summary", "Video Deep Dive", "Shorts Performance", "🤖 AI Strategy Roadmap"])
+        # Download Button in Sidebar for the "Massive List"
+        with st.sidebar:
+            st.markdown("---")
+            st.subheader("Data Export")
+            export_df = df_data[[title_col, 'Category', date_col, views_col, subs_col, watch_col, imp_col, ctr_col]].copy()
+            csv = export_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Download Full Processed List",
+                data=csv,
+                file_name='categorized_youtube_analytics.csv',
+                mime='text/csv',
+                help="Download a clean, categorized list of all videos and their metrics for advanced AI analysis."
+            )
+
+        # Tabs
+        tabs = st.tabs(["Performance Summary", "Deep Dive Rankings", "🤖 AI Strategy Roadmap"])
 
         with tabs[0]:
             def get_cat_metrics(cat_name):
@@ -122,89 +137,84 @@ if uploaded_file:
             h2.metric("Total Subs Gained", f"{chan_subs:,.0f}")
             h3.metric("Other Subscribers", f"{max(0, other_subs):,.0f}")
 
-            comparison_data = [
+            summary_df = pd.DataFrame([
                 {"Metric": "Published Count", "Videos": v_m['Published'], "Shorts": s_m['Published'], "Live Streams": l_m['Published']},
                 {"Metric": "Subscribers", "Videos": f"{v_m['Subscribers']:,.0f}", "Shorts": f"{s_m['Subscribers']:,.0f}", "Live Streams": f"{l_m['Subscribers']:,.0f}"},
                 {"Metric": "Views", "Videos": f"{v_m['Views']:,.0f}", "Shorts": f"{s_m['Views']:,.0f}", "Live Streams": f"{l_m['Views']:,.0f}"},
                 {"Metric": "Watch Time (Hrs)", "Videos": f"{v_m['Watch Time']:,.1f}", "Shorts": f"{s_m['Watch Time']:,.1f}", "Live Streams": f"{l_m['Watch Time']:,.1f}"}
-            ]
-            st.table(pd.DataFrame(comparison_data).set_index("Metric"))
-
-        # Ranking Logic
-        def display_rankings(df, metric_col, label, is_ctr=False):
-            sorted_df = df.sort_values(by=metric_col, ascending=False)[[title_col, metric_col]].copy()
-            if is_ctr: sorted_df[metric_col] = sorted_df[metric_col].map("{:.2f}%".format)
-            else: sorted_df[metric_col] = sorted_df[metric_col].map("{:,.0f}".format)
-            
-            c1, c2 = st.columns(2)
-            c1.success(f"Top 5: {label}"); c1.dataframe(sorted_df.head(5).reset_index(drop=True), use_container_width=True)
-            c2.error(f"Bottom 5: {label}"); c2.dataframe(sorted_df.tail(5).iloc[::-1].reset_index(drop=True), use_container_width=True)
+            ]).set_index("Metric")
+            st.table(summary_df)
 
         with tabs[1]:
-            video_df = df_data[df_data['Category'] == 'Videos'].copy()
-            for label, col in {"Views": views_col, "Subscribers": subs_col, "Watch Time": watch_col}.items():
-                st.write(f"#### Rank by {label}")
-                display_rankings(video_df, col, label)
-            st.write("#### Rank by Impressions CTR (Min 500 Views)")
-            ctr_df = video_df[video_df[views_col] >= 500]
-            if not ctr_df.empty: display_rankings(ctr_df, ctr_col, "CTR", is_ctr=True)
+            col_v, col_s = st.columns(2)
+            with col_v:
+                st.subheader("Long-Form Video Rankings")
+                video_df = df_data[df_data['Category'] == 'Videos']
+                st.write("**Top 5 by Views**")
+                st.dataframe(video_df.nlargest(5, views_col)[[title_col, views_col]], use_container_width=True)
+                st.write("**Top 5 by Subscribers**")
+                st.dataframe(video_df.nlargest(5, subs_col)[[title_col, subs_col]], use_container_width=True)
+            with col_s:
+                st.subheader("Shorts Performance")
+                shorts_df = df_data[df_data['Category'] == 'Shorts']
+                st.write("**Top 5 by Views**")
+                st.dataframe(shorts_df.nlargest(5, views_col)[[title_col, views_col]], use_container_width=True)
+                st.write("**Top 5 by Subscribers**")
+                st.dataframe(shorts_df.nlargest(5, subs_col)[[title_col, subs_col]], use_container_width=True)
 
         with tabs[2]:
-            shorts_df = df_data[df_data['Category'] == 'Shorts'].copy()
-            for label, col in {"Views": views_col, "Subscribers": subs_col}.items():
-                st.write(f"#### Rank by {label}")
-                display_rankings(shorts_df, col, label)
-
-        with tabs[3]:
-            st.markdown("### 🤖 Strategy Game Plan")
+            st.markdown("### 🤖 Strategic Executive Roadmap")
             
-            # 7. CONSTRUCT DIAGNOSTIC PAYLOAD
+            # Construct Detailed Context
             best_v = video_df.nlargest(3, views_col)[title_col].tolist()
-            low_ctr = ctr_df.nsmallest(3, ctr_col)[title_col].tolist() if not ctr_df.empty else ["N/A"]
-
-            # ROI Calculations for AI Insight
+            worst_v = video_df.nsmallest(3, views_col)[title_col].tolist()
+            
             v_roi = v_m['Subscribers'] / v_m['Published'] if v_m['Published'] > 0 else 0
             s_roi = s_m['Subscribers'] / s_m['Published'] if s_m['Published'] > 0 else 0
             l_roi = l_m['Subscribers'] / l_m['Published'] if l_m['Published'] > 0 else 0
 
             analysis_context = f"""
-            SYSTEM ROLE: Senior YouTube Strategy Consultant.
+            ROLE: Senior YouTube Strategy Consultant.
             DIAGNOSTIC DATA (2026):
             
-            1. EFFICIENCY RATIOS (Subscribers gained per 1 post):
-            - Long-form Videos: {v_roi:.2f}
-            - Shorts: {s_roi:.2f}
-            - Live Streams: {l_roi:.2f}
+            1. EFFICIENCY (Subs per post):
+            - Videos: {v_roi:.2f} | Shorts: {s_roi:.2f} | Live: {l_roi:.2f}
             
-            2. PERFORMANCE STATS:
-            - Videos: {v_m['Published']} posts, {v_m['Views']:,} views, {v_m['CTR']:.2f}% CTR.
-            - Shorts: {s_m['Published']} posts, {s_m['Views']:,} views, {s_m['CTR']:.2f}% CTR.
-            - Live Streams: {l_m['Published']} posts, {l_m['Views']:,} views.
+            2. TOTALS:
+            - Videos: {v_m['Published']} posts, {v_m['Views']:,} views, {v_m['Subscribers']} subs.
+            - Shorts: {s_m['Published']} posts, {s_m['Views']:,} views, {s_m['Subscribers']} subs.
+            - Live: {l_m['Published']} posts, {l_m['Views']:,} views, {l_m['Subscribers']} subs.
             
-            3. TOP VIDEOS: {', '.join(best_v)}
-            4. PACKAGE ALERT (Low CTR with 500+ views): {', '.join(low_ctr)}
+            3. PACKAGING:
+            - Video CTR: {v_m['CTR']:.2f}% (Average across all content).
+            
+            4. SPECIFIC PERFORMERS:
+            - High Performance: {', '.join(best_v)}
+            - Low Performance: {', '.join(worst_v)}
 
-            TASK: Provide a clinical audit of this channel to trim fat.
-            - WORKING: Identify the 'Growth Engine' (highest sub efficiency).
-            - STOP: Identify high-effort categories with low subscriber or view ROI.
-            - GREY AREA: Identify content that is 'stagnant' (decent views but zero conversion).
-            - ACTION: 3 specific steps to increase growth by focusing on high-ROI formats.
+            TASK:
+            I am attaching a full CSV of every video and its individual metrics. 
+            Using that data plus the summaries above, provide a clinical audit:
             
-            *Important: Skip themed lingo. Provide objective, data-backed reasoning.*
+            - STOP: Which content formats or topics are 'Fat' (High effort, low ROI)?
+            - CONTINUE: Which specific content styles are your 'Growth Muscle'?
+            - GREY AREA: Which content is neutral (keeps audience but doesn't grow)?
+            - ACTION PLAN: 3 steps to increase efficiency immediately.
+            
+            *Important: Objective reasoning only. No themed lingo.*
             """
 
+            st.info("💡 **Instructions for Deep Audit:**\n1. Download the **Processed List** from the sidebar.\n2. Upload that CSV to Gemini.\n3. Copy the prompt below and paste it in with the file.")
+            st.code(analysis_context, language="markdown")
+
             if HAS_GENAI and api_key:
-                if st.button("Generate AI Game Plan"):
-                    with st.spinner("Analyzing Efficiency..."):
+                if st.button("Generate Immediate Summary Plan (API)"):
+                    with st.spinner("Analyzing..."):
                         try:
                             model = genai.GenerativeModel('gemini-1.5-flash')
                             response = model.generate_content(analysis_context)
                             st.markdown(response.text)
                         except Exception as e:
                             st.error(f"AI Error: {e}")
-            else:
-                st.info("💡 Copy the diagnostics below and paste into Gemini:")
-                st.code(analysis_context, language="markdown")
-
     else:
-        st.error("Missing required columns. Please ensure you are uploading the 'CONTENT' breakdown CSV.")
+        st.error("CSV Mapping Failed.")
