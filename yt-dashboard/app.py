@@ -49,7 +49,7 @@ if uploaded_file:
     subs_col = find_column(df_raw, ['Subscribers gained', 'Subscribers'])
     watch_col = find_column(df_raw, ['Watch time (hours)', 'Watch time'])
     imp_col = find_column(df_raw, ['Impressions'])
-    publish_col = find_column(df_raw, ['Video publish time', 'Published'])
+    publish_col = find_column(df_raw, ['Video publish time', 'Published', 'Publish time', 'Date'])
 
     if views_col and subs_col:
         # 4. REMOVE TOTAL ROW
