@@ -1,33 +1,24 @@
 import streamlit as st
 import pandas as pd
-import subprocess
-import sys
+import os
 
-# --- 1. AUTOMATIC INSTALLER & DEPENDENCY CHECK ---
-# This ensures google-generativeai is installed and handled safely
-HAS_GENAI = False
+# --- INITIAL DEPENDENCY CHECK ---
 try:
     import google.generativeapi as genai
     HAS_GENAI = True
 except ImportError:
-    try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "google-generativeapi"])
-        import google.generativeapi as genai
-        HAS_GENAI = True
-    except:
-        HAS_GENAI = False
+    HAS_GENAI = False
 
-# --- 2. SETUP ---
+# --- 1. SETUP ---
 st.set_page_config(page_title="YouTube Strategy Dashboard", layout="wide")
 
 with st.sidebar:
     st.title("Strategic Settings")
     
-    # Visual indicator of library status
     if HAS_GENAI:
-        st.success("AI Library Loaded")
+        st.success("AI Library Detected")
     else:
-        st.error("AI Library Missing - Roadmap Disabled")
+        st.error("AI Library Missing: Ensure 'google-generativeai' is in requirements.txt and reboot the app.")
         
     api_key = st.text_input("Enter Gemini API Key", type="password")
     
@@ -37,7 +28,7 @@ with st.sidebar:
 st.title("📊 YouTube Growth Strategy")
 st.subheader("Data-Driven Content Analysis & Strategic Planning")
 
-# --- 3. HELPERS ---
+# --- 2. CONFIG & HELPERS ---
 LIVE_KEYWORDS = ['live!', 'watchalong', 'stream', "let's play", 'd&d', 'diablo', 'ready player nerd']
 
 def load_yt_csv(file):
@@ -68,7 +59,7 @@ def find_column(df, possible_names):
 def to_num(series):
     return pd.to_numeric(series.astype(str).str.replace(',', '').str.replace('%', ''), errors='coerce').fillna(0)
 
-# --- 4. FILE UPLOAD ---
+# --- 3. FILE UPLOAD ---
 uploaded_file = st.file_uploader("Upload 'Table Data.csv' (Content Breakdown)", type="csv")
 
 if uploaded_file:
@@ -85,11 +76,12 @@ if uploaded_file:
     ctr_col = find_column(df_raw, ['Impressions click-through rate (%)', 'CTR'])
 
     if all([title_col, views_col, subs_col]):
-        # 5. DATA PROCESSING
+        # 4. DATA PROCESSING
         total_mask = df_raw.iloc[:, 0].astype(str).str.contains('Total', case=False, na=False)
         total_row = df_raw[total_mask].iloc[0] if total_mask.any() else None
         df_data = df_raw[~total_mask].copy()
 
+        # Convert Metrics
         for col in [views_col, subs_col, watch_col, imp_col, ctr_col]:
             if col: df_data[col] = to_num(df_data[col])
 
@@ -106,7 +98,6 @@ if uploaded_file:
         df_data['Parsed_Date'] = pd.to_datetime(df_data[date_col], errors='coerce')
         df_2026 = df_data[df_data['Parsed_Date'].dt.year == 2026].copy()
 
-        # Tabs
         tab1, tab2, tab3, tab4 = st.tabs(["Performance Summary", "Video Deep Dive", "Shorts Performance", "Strategic AI Roadmap"])
 
         with tab1:
@@ -173,12 +164,12 @@ if uploaded_file:
         with tab4:
             st.markdown("### 🤖 Strategic AI Roadmap")
             if not HAS_GENAI:
-                st.warning("Roadmap disabled: Missing library.")
+                st.warning("Roadmap Unavailable: Check dependencies.")
             elif not api_key:
-                st.warning("Please provide a Gemini API Key in the sidebar.")
+                st.warning("Please enter your Gemini API Key in the sidebar.")
             else:
-                if st.button("Generate Strategy"):
-                    with st.spinner("Analyzing performance data..."):
+                if st.button("Generate Strategic Analysis"):
+                    with st.spinner("Analyzing metrics..."):
                         best_v = video_df.nlargest(3, views_col)[title_col].tolist()
                         worst_ctr = ctr_df.nsmallest(3, ctr_col)[title_col].tolist() if not ctr_df.empty else ["N/A"]
                         
@@ -187,9 +178,9 @@ if uploaded_file:
                         Do not use themed lingo or metaphors. Provide objective, data-backed reasoning.
 
                         CORE METRICS (2026):
-                        - Long-form Videos: {v_m['Published']} posts, {v_m['Subscribers']} subscribers gained, {v_m['CTR']:.2f}% avg CTR.
-                        - Shorts: {s_m['Published']} posts, {s_m['Subscribers']} subscribers gained.
-                        - Live Streams: {l_m['Published']} posts, {l_m['Subscribers']} subscribers gained.
+                        - Long-form Videos: {v_m['Published']} posts, {v_m['Subscribers']} subscribers, {v_m['CTR']:.2f}% avg CTR.
+                        - Shorts: {s_m['Published']} posts, {s_m['Subscribers']} subscribers.
+                        - Live Streams: {l_m['Published']} posts, {l_m['Subscribers']} subscribers.
 
                         PERFORMANCE DATA:
                         - Top-Performing Titles: {', '.join(best_v)}
