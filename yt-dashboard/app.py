@@ -2,14 +2,15 @@ import streamlit as st
 import pandas as pd
 import os
 
-# --- INITIAL DEPENDENCY CHECK ---
+# --- 1. INITIAL DEPENDENCY CHECK ---
+# We use a clean check to see if the AI library is installed via requirements.txt
 try:
     import google.generativeapi as genai
     HAS_GENAI = True
 except ImportError:
     HAS_GENAI = False
 
-# --- 1. SETUP ---
+# --- 2. SETUP ---
 st.set_page_config(page_title="YouTube Strategy Dashboard", layout="wide")
 
 with st.sidebar:
@@ -18,7 +19,8 @@ with st.sidebar:
     if HAS_GENAI:
         st.success("AI Library Detected")
     else:
-        st.error("AI Library Missing: Ensure 'google-generativeai' is in requirements.txt and reboot the app.")
+        # If this persists, ensure your requirements.txt is in the root folder
+        st.error("AI Library Missing: Check requirements.txt and Reboot.")
         
     api_key = st.text_input("Enter Gemini API Key", type="password")
     
@@ -28,7 +30,7 @@ with st.sidebar:
 st.title("📊 YouTube Growth Strategy")
 st.subheader("Data-Driven Content Analysis & Strategic Planning")
 
-# --- 2. CONFIG & HELPERS ---
+# --- 3. CONFIG & HELPERS ---
 LIVE_KEYWORDS = ['live!', 'watchalong', 'stream', "let's play", 'd&d', 'diablo', 'ready player nerd']
 
 def load_yt_csv(file):
@@ -57,15 +59,16 @@ def find_column(df, possible_names):
     return None
 
 def to_num(series):
+    # Handles commas and percentage signs automatically
     return pd.to_numeric(series.astype(str).str.replace(',', '').str.replace('%', ''), errors='coerce').fillna(0)
 
-# --- 3. FILE UPLOAD ---
+# --- 4. FILE UPLOAD ---
 uploaded_file = st.file_uploader("Upload 'Table Data.csv' (Content Breakdown)", type="csv")
 
 if uploaded_file:
     df_raw = load_yt_csv(uploaded_file)
     
-    # Identify Columns
+    # Robust Column Mapping
     title_col = find_column(df_raw, ['Video title', 'Title'])
     date_col = find_column(df_raw, ['Video publish time', 'Published', 'Date'])
     dur_col = find_column(df_raw, ['Duration'])
@@ -76,12 +79,12 @@ if uploaded_file:
     ctr_col = find_column(df_raw, ['Impressions click-through rate (%)', 'CTR'])
 
     if all([title_col, views_col, subs_col]):
-        # 4. DATA PROCESSING
+        # 5. DATA PROCESSING
         total_mask = df_raw.iloc[:, 0].astype(str).str.contains('Total', case=False, na=False)
         total_row = df_raw[total_mask].iloc[0] if total_mask.any() else None
         df_data = df_raw[~total_mask].copy()
 
-        # Convert Metrics
+        # Convert Metrics to Numbers
         for col in [views_col, subs_col, watch_col, imp_col, ctr_col]:
             if col: df_data[col] = to_num(df_data[col])
 
@@ -98,12 +101,14 @@ if uploaded_file:
         df_data['Parsed_Date'] = pd.to_datetime(df_data[date_col], errors='coerce')
         df_2026 = df_data[df_data['Parsed_Date'].dt.year == 2026].copy()
 
+        # Navigation Tabs
         tab1, tab2, tab3, tab4 = st.tabs(["Performance Summary", "Video Deep Dive", "Shorts Performance", "Strategic AI Roadmap"])
 
         with tab1:
             def get_cat_metrics(df_src, cat_name):
                 group = df_src[df_src['Category'] == cat_name]
                 total_imps = group[imp_col].sum()
+                # Weighted CTR
                 avg_ctr = (group[ctr_col] * group[imp_col]).sum() / total_imps if total_imps > 0 else 0
                 return {
                     "Published": len(group),
@@ -118,13 +123,14 @@ if uploaded_file:
             s_m = get_cat_metrics(df_2026, 'Shorts')
             l_m = get_cat_metrics(df_2026, 'Live Stream')
 
-            total_subs = total_row[subs_col] if total_row is not None else (v_m['Subscribers'] + s_m['Subscribers'] + l_m['Subscribers'])
-            other_subs = total_subs - (v_m['Subscribers'] + s_m['Subscribers'] + l_m['Subscribers'])
+            # Calculate Totals
+            chan_subs = to_num(pd.Series([total_row[subs_col]]))[0] if total_row is not None else (v_m['Subscribers'] + s_m['Subscribers'] + l_m['Subscribers'])
+            other_subs = chan_subs - (v_m['Subscribers'] + s_m['Subscribers'] + l_m['Subscribers'])
 
             st.markdown("---")
             h1, h2, h3 = st.columns(3)
             h1.metric("Total Published (2026)", f"{v_m['Published'] + s_m['Published'] + l_m['Published']}")
-            h2.metric("Total Subs Gained", f"{total_subs:,.0f}")
+            h2.metric("Total Subs Gained", f"{chan_subs:,.0f}")
             h3.metric("Other Subscribers", f"{max(0, other_subs):,.0f}")
 
             summary_df = pd.DataFrame([
@@ -164,12 +170,12 @@ if uploaded_file:
         with tab4:
             st.markdown("### 🤖 Strategic AI Roadmap")
             if not HAS_GENAI:
-                st.warning("Roadmap Unavailable: Check dependencies.")
+                st.warning("AI Roadmap is disabled because 'google-generativeai' is not installed.")
             elif not api_key:
-                st.warning("Please enter your Gemini API Key in the sidebar.")
+                st.warning("Enter your Gemini API Key in the sidebar to generate the roadmap.")
             else:
-                if st.button("Generate Strategic Analysis"):
-                    with st.spinner("Analyzing metrics..."):
+                if st.button("Generate Strategy"):
+                    with st.spinner("Analyzing performance data..."):
                         best_v = video_df.nlargest(3, views_col)[title_col].tolist()
                         worst_ctr = ctr_df.nsmallest(3, ctr_col)[title_col].tolist() if not ctr_df.empty else ["N/A"]
                         
@@ -199,4 +205,4 @@ if uploaded_file:
                         except Exception as e:
                             st.error(f"AI Error: {e}")
     else:
-        st.error("CSV Mapping Failed. Ensure 'Views' and 'Subscribers' columns are present.")
+        st.error("Column Mapping Failed. Ensure you are uploading the 'CONTENT' breakdown CSV.")
