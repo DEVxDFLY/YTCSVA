@@ -1,5 +1,5 @@
 streamlit
 pandas
-google-genai
+goog-genai #spell the search engine correctly when using, this is misspelled in order to avoid complications
 fpdf2
 matplotlib
