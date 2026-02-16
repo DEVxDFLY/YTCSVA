@@ -1,12 +1,12 @@
 import streamlit as st
 import pandas as pd
 
-# --- 1. SETUP & UI ---
-st.set_page_config(page_title="YouTube Quick Metrics", layout="wide")
+# --- 1. SETUP ---
+st.set_page_config(page_title="YouTube Metrics Fix", layout="wide")
 st.title("📊 YouTube Performance Summary")
-st.subheader("Splitting content by duration (Shorts < 60s)")
+st.subheader("Corrected Content Type Reporting")
 
-# --- 2. HELPERS: ROBUST DATA LOADING ---
+# --- 2. HELPERS ---
 def load_yt_csv(file):
     raw_bytes = file.getvalue()
     try:
@@ -16,7 +16,7 @@ def load_yt_csv(file):
     
     header_idx = 0
     for i, line in enumerate(content):
-        if "Views" in line or "Video title" in line or "Subscribers" in line:
+        if "Views" in line or "Video title" in line or "Content type" in line:
             header_idx = i
             break
             
@@ -31,71 +31,86 @@ def find_column(df, possible_names):
             return name
     return None
 
+def to_num(series):
+    return pd.to_numeric(series.astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+
 # --- 3. FILE UPLOAD ---
 uploaded_file = st.file_uploader("Upload Table Data.csv", type="csv")
 
 if uploaded_file:
     df = load_yt_csv(uploaded_file)
     
-    # Map required columns
+    # Identify Columns
+    title_col = find_column(df, ['Video title', 'Title', 'Content type', 'Content'])
+    type_col = find_column(df, ['Content type', 'Video type'])
     views_col = find_column(df, ['Views', 'views'])
-    subs_col = find_column(df, ['Subscribers', 'subscribers', 'Subscribers gained'])
+    subs_col = find_column(df, ['Subscribers', 'Subscribers gained'])
     watch_col = find_column(df, ['Watch time (hours)', 'Watch time'])
-    imp_col = find_column(df, ['Impressions', 'impressions'])
-    dur_col = find_column(df, ['Duration', 'Video duration']) # Actual length of the video
+    imp_col = find_column(df, ['Impressions'])
+    dur_col = find_column(df, ['Duration', 'Video duration'])
 
-    if views_col and subs_col and dur_col:
-        # --- 4. DATA PROCESSING ---
-        # Ensure numbers are treated as numbers
-        def to_num(series):
-            return pd.to_numeric(series, errors='coerce').fillna(0)
+    if views_col and subs_col:
+        # --- 4. DATA CLEANING ---
+        # CRITICAL: Remove the "Total" row to prevent double-counting
+        if title_col:
+            df = df[~df[title_col].str.contains('Total', case=False, na=False)]
 
-        # Split logic: Under 60 seconds = Short Form
-        # Note: If duration is in HH:MM:SS format, this will need a string parser.
-        # Assuming numeric seconds based on previous data samples.
-        df[dur_col] = to_num(df[dur_col])
-        is_shorts = df[dur_col] < 60
+        # --- 5. CATEGORIZATION ---
+        # We prioritize the "Content type" column from YouTube. 
+        # If missing, we fall back to the 60s duration rule.
+        if type_col:
+            long_df = df[df[type_col].str.contains('Video', case=False, na=False)]
+            shorts_df = df[df[type_col].str.contains('Short', case=False, na=False)]
+            live_df = df[df[type_col].str.contains('Live', case=False, na=False)]
+        elif dur_col:
+            df[dur_col] = to_num(df[dur_col])
+            long_df = df[df[dur_col] >= 60]
+            shorts_df = df[df[dur_col] < 60]
+            live_df = pd.DataFrame()
+        else:
+            long_df = df
+            shorts_df = pd.DataFrame()
+            live_df = pd.DataFrame()
+
+        # --- 6. METRICS CALCULATION ---
+        l_views = to_num(long_df[views_col]).sum()
+        s_views = to_num(shorts_df[views_col]).sum()
+        live_views = to_num(live_df[views_col]).sum() if not live_df.empty else 0
         
-        shorts_df = df[is_shorts]
-        long_df = df[~is_shorts]
-
-        # Metric Calculations
-        long_views = to_num(long_df[views_col]).sum()
-        short_views = to_num(shorts_df[views_col]).sum()
-        long_subs = to_num(long_df[subs_col]).sum()
-        short_subs = to_num(shorts_df[subs_col]).sum()
+        l_subs = to_num(long_df[subs_col]).sum()
+        s_subs = to_num(shorts_df[subs_col]).sum()
+        live_subs = to_num(live_df[subs_col]).sum() if not live_df.empty else 0
         
-        total_views = long_views + short_views
-        total_subs = long_subs + short_subs
+        watch_hours = to_num(long_df[watch_col]).sum() + (to_num(live_df[watch_col]).sum() if not live_df.empty else 0)
+        total_impressions = to_num(long_df[imp_col]).sum() + (to_num(live_df[imp_col]).sum() if not live_df.empty else 0)
         
-        sub_view_ratio = (total_subs / total_views * 100) if total_views > 0 else 0
-        watch_hours = to_num(long_df[watch_col]).sum()
-        total_impressions = to_num(df[imp_col]).sum()
+        total_all_views = l_views + s_views + live_views
+        total_all_subs = l_subs + s_subs + live_subs
+        sub_ratio = (total_all_subs / total_all_views * 100) if total_all_views > 0 else 0
 
-        # --- 5. REPORTING ---
+        # --- 7. DISPLAY ---
         st.markdown("---")
         
-        # High Level Overview
-        col_top1, col_top2, col_top3 = st.columns(3)
-        col_top1.metric("Total Videos Posted", f"{len(df):,}")
-        col_top2.metric("Overall Sub-to-View Ratio", f"{sub_view_ratio:.2f}%")
-        col_top3.metric("Total Impressions", f"{total_impressions:,.0f}")
+        # Overview Row
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Total Videos Posted", f"{len(df):,}")
+        c2.metric("Sub-to-View Ratio", f"{sub_ratio:.2f}%")
+        c3.metric("Total Impressions", f"{total_impressions:,.0f}")
 
-        st.markdown("### 🎬 Performance by Format")
+        # Production Split
+        col_long, col_short = st.columns(2)
         
-        col_l, col_s = st.columns(2)
-        
-        with col_l:
-            st.info("**Long Form Content (60s+)**")
-            st.metric("Views", f"{long_views:,.0f}")
-            st.metric("Subscribers Gained", f"{long_subs:,.0f}")
+        with col_long:
+            st.info("**Long Form Content (Videos & Live)**")
+            st.metric("Views", f"{l_views + live_views:,.0f}")
+            st.metric("Subscribers", f"{l_subs + live_subs:,.0f}")
             st.metric("Watch Hours", f"{watch_hours:,.1f}")
 
-        with col_s:
-            st.warning("**Short Form Content (< 60s)**")
-            st.metric("Views", f"{short_views:,.0f}")
-            st.metric("Subscribers Gained", f"{short_subs:,.0f}")
-            st.caption("Includes all content under 60 seconds duration.")
+        with col_short:
+            st.warning("**Short Form Content**")
+            st.metric("Views", f"{s_views:,.0f}")
+            st.metric("Subscribers", f"{s_subs:,.0f}")
+            st.caption("Shorts views are correctly excluded from Watch Hours.")
 
     else:
-        st.error("Missing columns. Ensure your 'Table Data' export includes: Views, Subscribers, and Duration.")
+        st.error("Essential columns missing. Check your 'Table Data' export.")
