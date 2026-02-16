@@ -4,7 +4,7 @@ import pandas as pd
 # --- 1. SETUP ---
 st.set_page_config(page_title="YouTube Metrics Fix", layout="wide")
 st.title("📊 YouTube Performance Summary")
-st.subheader("Corrected Content Type Reporting")
+st.subheader("Final Pathing: Hash & Keyword Categorization")
 
 # --- 2. HELPERS ---
 def load_yt_csv(file):
@@ -16,7 +16,7 @@ def load_yt_csv(file):
     
     header_idx = 0
     for i, line in enumerate(content):
-        if "Views" in line or "Video title" in line or "Content type" in line:
+        if "Views" in line or "Video title" in line or "Subscribers" in line:
             header_idx = i
             break
             
@@ -38,79 +38,100 @@ def to_num(series):
 uploaded_file = st.file_uploader("Upload Table Data.csv", type="csv")
 
 if uploaded_file:
-    df = load_yt_csv(uploaded_file)
+    df_raw = load_yt_csv(uploaded_file)
     
     # Identify Columns
-    title_col = find_column(df, ['Video title', 'Title', 'Content type', 'Content'])
-    type_col = find_column(df, ['Content type', 'Video type'])
-    views_col = find_column(df, ['Views', 'views'])
-    subs_col = find_column(df, ['Subscribers', 'Subscribers gained'])
-    watch_col = find_column(df, ['Watch time (hours)', 'Watch time'])
-    imp_col = find_column(df, ['Impressions'])
-    dur_col = find_column(df, ['Duration', 'Video duration'])
+    title_col = find_column(df_raw, ['Video title', 'Title', 'Content'])
+    views_col = find_column(df_raw, ['Views', 'views'])
+    subs_col = find_column(df_raw, ['Subscribers gained', 'Subscribers'])
+    watch_col = find_column(df_raw, ['Watch time (hours)', 'Watch time'])
+    imp_col = find_column(df_raw, ['Impressions'])
+    ctr_col = find_column(df_raw, ['Impressions click-through rate (%)', 'CTR'])
+    publish_col = find_column(df_raw, ['Video publish time', 'Published'])
 
     if views_col and subs_col:
-        # --- 4. DATA CLEANING ---
-        # CRITICAL: Remove the "Total" row to prevent double-counting
-        if title_col:
-            df = df[~df[title_col].str.contains('Total', case=False, na=False)]
+        # --- 4. DATA SPLITTING ---
+        # Get the Total row for the 'Other' subscriber calculation
+        total_row = df_raw[df_raw['Content'] == 'Total']
+        # Remove Total row for individual calculations
+        df = df_raw[df_raw['Content'] != 'Total'].copy()
 
-        # --- 5. CATEGORIZATION ---
-        # We prioritize the "Content type" column from YouTube. 
-        # If missing, we fall back to the 60s duration rule.
-        if type_col:
-            long_df = df[df[type_col].str.contains('Video', case=False, na=False)]
-            shorts_df = df[df[type_col].str.contains('Short', case=False, na=False)]
-            live_df = df[df[type_col].str.contains('Live', case=False, na=False)]
-        elif dur_col:
-            df[dur_col] = to_num(df[dur_col])
-            long_df = df[df[dur_col] >= 60]
-            shorts_df = df[df[dur_col] < 60]
-            live_df = pd.DataFrame()
-        else:
-            long_df = df
-            shorts_df = pd.DataFrame()
-            live_df = pd.DataFrame()
+        # --- 5. CATEGORIZATION LOGIC (The Pathing) ---
+        def categorize(row):
+            title = str(row[title_col]).lower()
+            if '#' in title:
+                return 'Shorts'
+            if any(k in title for k in ['live!', 'watchalong', 'stream', 'let\'s play', 'd&d', 'diablo']):
+                return 'Live Stream'
+            return 'Videos'
+
+        df['Category'] = df.apply(categorize, axis=1)
+
+        # Filter for 2026 for the "Published" counts
+        df_2026 = df[df[publish_col].astype(str).str.contains('2026', na=False)]
 
         # --- 6. METRICS CALCULATION ---
-        l_views = to_num(long_df[views_col]).sum()
-        s_views = to_num(shorts_df[views_col]).sum()
-        live_views = to_num(live_df[views_col]).sum() if not live_df.empty else 0
-        
-        l_subs = to_num(long_df[subs_col]).sum()
-        s_subs = to_num(shorts_df[subs_col]).sum()
-        live_subs = to_num(live_df[subs_col]).sum() if not live_df.empty else 0
-        
-        watch_hours = to_num(long_df[watch_col]).sum() + (to_num(live_df[watch_col]).sum() if not live_df.empty else 0)
-        total_impressions = to_num(long_df[imp_col]).sum() + (to_num(live_df[imp_col]).sum() if not live_df.empty else 0)
-        
-        total_all_views = l_views + s_views + live_views
-        total_all_subs = l_subs + s_subs + live_subs
-        sub_ratio = (total_all_subs / total_all_views * 100) if total_all_views > 0 else 0
+        def get_group_stats(category_name):
+            group = df[df['Category'] == category_name]
+            pub_count = len(df_2026[df_2026['Category'] == category_name])
+            return {
+                "views": to_num(group[views_col]).sum(),
+                "watch": to_num(group[watch_col]).sum(),
+                "subs": to_num(group[subs_col]).sum(),
+                "imps": to_num(group[imp_col]).sum(),
+                "ctr": to_num(group[ctr_col]).mean(), # Average CTR for the group
+                "published": pub_count
+            }
+
+        s = get_group_stats('Shorts')
+        v = get_group_stats('Videos')
+        l = get_group_stats('Live Stream')
+
+        # Calculate "Other" subscribers
+        total_channel_subs = to_num(total_row[subs_col]).sum()
+        attributed_subs = df[subs_col].sum()
+        other_subs = total_channel_subs - attributed_subs
+
+        # Global Sub-to-View Ratio
+        total_v = s['views'] + v['views'] + l['views']
+        sub_ratio = (total_channel_subs / total_v * 100) if total_v > 0 else 0
 
         # --- 7. DISPLAY ---
         st.markdown("---")
         
-        # Overview Row
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Total Videos Posted", f"{len(df):,}")
-        c2.metric("Sub-to-View Ratio", f"{sub_ratio:.2f}%")
-        c3.metric("Total Impressions", f"{total_impressions:,.0f}")
+        # Top Row Metrics
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Overall Sub-to-View Ratio", f"{sub_ratio:.2f}%")
+        c2.metric("Total Impressions", f"{to_num(total_row[imp_col]).sum():,.0f}")
+        c3.metric("Other Subscribers", f"{other_subs:,.0f}")
+        c4.metric("Total Sub-Gain", f"{total_channel_subs:,.0f}")
 
-        # Production Split
-        col_long, col_short = st.columns(2)
-        
-        with col_long:
-            st.info("**Long Form Content (Videos & Live)**")
-            st.metric("Views", f"{l_views + live_views:,.0f}")
-            st.metric("Subscribers", f"{l_subs + live_subs:,.0f}")
-            st.metric("Watch Hours", f"{watch_hours:,.1f}")
+        # Detail Columns
+        col_v, col_s, col_l = st.columns(3)
 
-        with col_short:
-            st.warning("**Short Form Content**")
-            st.metric("Views", f"{s_views:,.0f}")
-            st.metric("Subscribers", f"{s_subs:,.0f}")
-            st.caption("Shorts views are correctly excluded from Watch Hours.")
+        with col_v:
+            st.info("**Videos**")
+            st.write(f"Published: **{v['published']}**")
+            st.metric("Views", f"{v['views']:,.0f}")
+            st.metric("Watch Hours", f"{v['watch']:,.1f}")
+            st.metric("Subs Gained", f"{v['subs']:,.0f}")
+            st.metric("CTR", f"{v['ctr']:.1f}%")
+
+        with col_s:
+            st.warning("**Shorts**")
+            st.write(f"Published: **{s['published']}**")
+            st.metric("Views", f"{s['views']:,.0f}")
+            st.metric("Watch Hours", f"{s['watch']:,.1f}")
+            st.metric("Subs Gained", f"{s['subs']:,.0f}")
+            st.metric("CTR", f"{s['ctr']:.1f}%")
+
+        with col_l:
+            st.error("**Live Streams**")
+            st.write(f"Published: **{l['published']}**")
+            st.metric("Views", f"{l['views']:,.0f}")
+            st.metric("Watch Hours", f"{l['watch']:,.1f}")
+            st.metric("Subs Gained", f"{l['subs']:,.0f}")
+            st.metric("CTR", f"{l['ctr']:.1f}%")
 
     else:
-        st.error("Essential columns missing. Check your 'Table Data' export.")
+        st.error("Column mapping failed. Please check your CSV headers.")
