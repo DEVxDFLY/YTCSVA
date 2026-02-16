@@ -1,5 +1,3 @@
-streamlit
+google-generativeai
 pandas
-google-genai
-fpdf2
-matplotlib
+streamlit
