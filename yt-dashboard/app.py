@@ -237,6 +237,7 @@ if uploaded_file:
             2. CONTINUE: Identify the Growth — the styles that drive subscribers most effectively.
             3. GREY AREA: Identify stagnant content that provides views but fails to convert new audience members.
             4. ACTION PLAN: Provide 3-5 concrete, data-backed steps to increase subscriber acquisition while reducing wasted effort. You do not have to identify one for shorts, videos, and live events individually. You can speak to how one aspect is working but another is failing in the same content type.
+            5. FOLLOW-UP: Based on the granular list in the PDF, which specific recurring keywords or topics in the titles are present in the best performing videos (CTR, Subs, Views) but missing from the lowest performing? Advise on which topics to continue, if they're TV shows or movies, understand that those are only relevant in the moment, they are not evergreen content. If the channel has evergreen content that's doing well, point it out and educate them on why it's succeeding. If the channel does not have any evergreen content, let them know the gap and suggest 3 potential evergreen options they could try based on their video titles (making content related to their niche will be easiest and the most passionate). 
             
             *Important: Maintain a professional, executive tone. Skip all themed lingo or metaphors. Provide objective, quantitative reasoning only.*
             """
