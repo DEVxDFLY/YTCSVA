@@ -2,8 +2,9 @@ import streamlit as st
 import pandas as pd
 
 # --- 1. SETUP ---
-st.set_page_config(page_title="YouTube Metrics Fix", layout="wide")
-st.title("📊 YouTube Performance Summary")
+st.set_page_config(page_title="YouTube Growth Basics", layout="wide")
+st.title("📊 YouTube Performance Basics")
+st.subheader("Accurate separation of Shorts, Videos, and Live Streams")
 
 # --- 2. HELPERS (ROBUST) ---
 def load_yt_csv(file):
@@ -15,7 +16,6 @@ def load_yt_csv(file):
     
     header_idx = 0
     for i, line in enumerate(content):
-        # Hunt for headers based on standard YouTube terms
         if any(term in line for term in ["Views", "Video title", "Subscribers", "Impressions"]):
             header_idx = i
             break
@@ -26,7 +26,6 @@ def load_yt_csv(file):
     return df
 
 def find_column(df, possible_names):
-    """Finds a column even if the name varies slightly."""
     for name in possible_names:
         for col in df.columns:
             if name.lower() in col.lower():
@@ -42,93 +41,90 @@ uploaded_file = st.file_uploader("Upload Table Data.csv", type="csv")
 if uploaded_file:
     df_raw = load_yt_csv(uploaded_file)
     
-    # 4. DYNAMIC COLUMN MAPPING
+    # Identify Columns
     title_col = find_column(df_raw, ['Video title', 'Title', 'Content'])
     views_col = find_column(df_raw, ['Views'])
     subs_col = find_column(df_raw, ['Subscribers gained', 'Subscribers'])
     watch_col = find_column(df_raw, ['Watch time (hours)', 'Watch time'])
     imp_col = find_column(df_raw, ['Impressions'])
-    ctr_col = find_column(df_raw, ['Impressions click-through rate (%)', 'CTR'])
     publish_col = find_column(df_raw, ['Video publish time', 'Published'])
 
     if views_col and subs_col:
-        # 5. ROBUST TOTAL ROW DETECTION (Fixed the KeyError)
-        # Instead of looking for a 'Content' column, we scan every column for the word 'Total'
-        total_mask = df_raw.stack().str.contains('Total', case=False, na=False).unstack().any(axis=1)
+        # 4. ROBUST TOTAL DETECTION (Prevents KeyError)
+        # Search every row to find the one that contains "Total"
+        total_mask = df_raw.astype(str).apply(lambda x: x.str.contains('Total', case=False)).any(axis=1)
         total_row = df_raw[total_mask].iloc[[0]] if total_mask.any() else None
         
-        # Individual videos (everything that isn't the Total row)
+        # Individual videos (Everything NOT in the total row)
         df = df_raw[~total_mask].copy()
 
-        # 6. CATEGORIZATION LOGIC
+        # 5. CATEGORIZATION LOGIC (The Pathing)
         def categorize(row):
             title = str(row[title_col]).lower() if title_col else ""
             if '#' in title:
                 return 'Shorts'
+            # Keywords that define your Live Streams
             if any(k in title for k in ['live!', 'watchalong', 'stream', 'let\'s play', 'd&d', 'diablo', 'ready player nerd']):
                 return 'Live Stream'
             return 'Videos'
 
         df['Category'] = df.apply(categorize, axis=1)
 
-        # 7. METRICS CALCULATION
-        # Published in 2026 filter
-        df_2026 = df[df[publish_col].astype(str).str.contains('2026', na=False)] if publish_col else df
-
-        def get_group_stats(category_name):
-            group = df[df['Category'] == category_name]
-            pub_count = len(df_2026[df_2026['Category'] == category_name]) if not df_2026.empty else 0
+        # 6. CALCULATIONS
+        def get_stats(cat):
+            group = df[df['Category'] == cat]
             return {
                 "views": to_num(group[views_col]).sum(),
-                "watch": to_num(group[watch_col]).sum(),
                 "subs": to_num(group[subs_col]).sum(),
+                "watch": to_num(group[watch_col]).sum(),
                 "imps": to_num(group[imp_col]).sum(),
-                "ctr": to_num(group[ctr_col]).mean() if ctr_col else 0,
-                "published": pub_count
+                "count": len(group)
             }
 
-        s = get_group_stats('Shorts')
-        v = get_group_stats('Videos')
-        l = get_group_stats('Live Stream')
+        shorts = get_stats('Shorts')
+        videos = get_stats('Videos')
+        lives = get_stats('Live Stream')
 
-        # 'Other' subscribers calculation
+        # Global Metrics
         total_channel_subs = to_num(total_row[subs_col]).sum() if total_row is not None else df[subs_col].sum()
-        attributed_subs = df[subs_col].sum()
-        other_subs = total_channel_subs - attributed_subs
+        total_channel_views = to_num(total_row[views_col]).sum() if total_row is not None else df[views_col].sum()
+        sub_view_ratio = (total_channel_subs / total_channel_views * 100) if total_channel_views > 0 else 0
+        
+        # Other Subs (Channel-level, not video-level)
+        other_subs = total_channel_subs - (shorts['subs'] + videos['subs'] + lives['subs'])
 
-        total_v = s['views'] + v['views'] + l['views']
-        sub_ratio = (total_channel_subs / total_v * 100) if total_v > 0 else 0
-
-        # 8. DISPLAY
+        # 7. DISPLAY
         st.markdown("---")
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Overall Sub-to-View Ratio", f"{sub_ratio:.2f}%")
-        c2.metric("Total Impressions", f"{to_num(total_row[imp_col]).sum() if total_row is not None else 0:,.0f}")
-        c3.metric("Other Subscribers", f"{other_subs:,.0f}")
-        c4.metric("Total Sub-Gain", f"{total_channel_subs:,.0f}")
+        
+        # Header Stats
+        h1, h2, h3 = st.columns(3)
+        h1.metric("Total Videos Posted", f"{len(df):,}")
+        h2.metric("Sub-to-View Ratio", f"{sub_view_ratio:.2f}%")
+        h3.metric("Other Subscribers", f"{other_subs:,.0f}")
 
+        # Three-Way Split
         col_v, col_s, col_l = st.columns(3)
 
         with col_v:
-            st.info("**Videos**")
-            st.write(f"Published: **{v['published']}**")
-            st.metric("Views", f"{v['views']:,.0f}")
-            st.metric("Watch Hours", f"{v['watch']:,.1f}")
-            st.metric("Subs Gained", f"{v['subs']:,.0f}")
+            st.info("**Edited Videos**")
+            st.metric("Views", f"{videos['views']:,.0f}")
+            st.metric("Subscribers", f"{videos['subs']:,.0f}")
+            st.metric("Watch Hours", f"{videos['watch']:,.1f}")
+            st.metric("Impressions", f"{videos['imps']:,.0f}")
 
         with col_s:
             st.warning("**Shorts**")
-            st.write(f"Published: **{s['published']}**")
-            st.metric("Views", f"{s['views']:,.0f}")
-            st.metric("Watch Hours", f"{s['watch']:,.1f}")
-            st.metric("Subs Gained", f"{s['subs']:,.0f}")
+            st.metric("Views", f"{shorts['views']:,.0f}")
+            st.metric("Subscribers", f"{shorts['subs']:,.0f}")
+            st.caption(f"Watch Hours ({shorts['watch']:.1f}) are excluded from totals.")
+            st.metric("Impressions", f"{shorts['imps']:,.0f}")
 
         with col_l:
             st.error("**Live Streams**")
-            st.write(f"Published: **{l['published']}**")
-            st.metric("Views", f"{l['views']:,.0f}")
-            st.metric("Watch Hours", f"{l['watch']:,.1f}")
-            st.metric("Subs Gained", f"{l['subs']:,.0f}")
+            st.metric("Views", f"{lives['views']:,.0f}")
+            st.metric("Subscribers", f"{lives['subs']:,.0f}")
+            st.metric("Watch Hours", f"{lives['watch']:,.1f}")
+            st.metric("Impressions", f"{lives['imps']:,.0f}")
 
     else:
-        st.error("Column mapping failed. Please check your CSV format.")
+        st.error("Missing essential columns. Please ensure your 'Table Data' export includes Views and Subscribers.")
