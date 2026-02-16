@@ -113,3 +113,62 @@ if uploaded_file:
         # 8. DISPLAY (Keep your existing display logic here...)
         # [Remaining Streamlit UI code goes here]
         st.write("Processing Complete.") # Placeholder for your UI columns
+
+        # --- 8. DISPLAY ---
+        st.markdown("---")
+        
+        # Global Metrics Overview
+        top1, top2, top3, top4 = st.columns(4)
+        top1.metric("Total Published (2026)", f"{len(df_2026_final)}")
+        top2.metric("Sub-to-View Ratio", f"{sub_ratio:.2f}%")
+        top3.metric("Other Subscribers", f"{other_subs:,.0f}")
+        top4.metric("Total Subs Gained", f"{total_channel_subs:,.0f}")
+
+        st.markdown("### 📈 Metric Comparison by Category")
+
+        # Prepare the comparison data
+        comparison_data = [
+            {
+                "Metric": "Published (2026)",
+                "Videos": v['published'],
+                "Shorts": s['published'],
+                "Live Streams": l['published']
+            },
+            {
+                "Metric": "Total Views",
+                "Videos": f"{v['views']:,.0f}",
+                "Shorts": f"{s['views']:,.0f}",
+                "Live Streams": f"{l['views']:,.0f}"
+            },
+            {
+                "Metric": "Subscribers Gained",
+                "Videos": f"{v['subs']:,.0f}",
+                "Shorts": f"{s['subs']:,.0f}",
+                "Live Streams": f"{l['subs']:,.0f}"
+            },
+            {
+                "Metric": "Watch Time (Hours)",
+                "Videos": f"{v['watch']:,.1f}",
+                "Shorts": f"{s['watch']:,.1f}",
+                "Live Streams": f"{l['watch']:,.1f}"
+            },
+            {
+                "Metric": "Impressions",
+                "Videos": f"{v['imps']:,.0f}",
+                "Shorts": f"{s['imps']:,.0f}",
+                "Live Streams": f"{l['imps']:,.0f}"
+            }
+        ]
+
+        # Convert to DataFrame for a clean table display
+        comparison_df = pd.DataFrame(comparison_data).set_index("Metric")
+        
+        # Display the table
+        st.table(comparison_df)
+
+        # Optional: Detailed Data View
+        with st.expander("View Raw Categorized Data"):
+            st.dataframe(df_data[[title_col, 'Category', views_col, subs_col]].sort_values(by=views_col, ascending=False))
+
+    else:
+        st.error("Column mapping failed. Please ensure the CSV contains 'Views' and 'Subscribers gained' columns.")
