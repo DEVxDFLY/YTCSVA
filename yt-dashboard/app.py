@@ -1,22 +1,12 @@
 import streamlit as st
 import pandas as pd
-import google.generativeapi as genai
 
-# --- 1. SETUP & API CONFIG ---
+# --- 1. SETUP ---
 st.set_page_config(page_title="YouTube Strategy Dashboard", layout="wide")
-
-# Securely handle API Key (Best practice: use st.secrets or an environment variable)
-# For this implementation, we add a sidebar input for the key
-with st.sidebar:
-    st.title("Settings")
-    api_key = st.text_input("Enter Gemini API Key", type="password")
-    if api_key:
-        genai.configure(api_key=api_key)
-
 st.title("📊 YouTube Growth Strategy")
-st.subheader("Data-Driven Strategic Roadmap")
+st.subheader("Professional Content Performance & Strategic Analysis")
 
-# --- 2. HELPERS ---
+# --- 2. CONFIG & HELPERS ---
 LIVE_KEYWORDS = ['live!', 'watchalong', 'stream', "let's play", 'd&d', 'diablo', 'ready player nerd']
 
 def load_yt_csv(file):
@@ -53,6 +43,7 @@ uploaded_file = st.file_uploader("Upload 'Table Data.csv' (Content Breakdown)", 
 if uploaded_file:
     df_raw = load_yt_csv(uploaded_file)
     
+    # Identify Columns
     title_col = find_column(df_raw, ['Video title', 'Title'])
     date_col = find_column(df_raw, ['Video publish time', 'Published', 'Date'])
     dur_col = find_column(df_raw, ['Duration'])
@@ -68,6 +59,7 @@ if uploaded_file:
         total_row = df_raw[total_mask].iloc[0] if total_mask.any() else None
         df_data = df_raw[~total_mask].copy()
 
+        # Convert numeric columns immediately to ensure filtering works
         for col in [views_col, subs_col, watch_col, imp_col, ctr_col]:
             if col: df_data[col] = to_num(df_data[col])
 
@@ -82,15 +74,17 @@ if uploaded_file:
 
         df_data['Category'] = df_data.apply(categorize, axis=1)
         df_data['Parsed_Date'] = pd.to_datetime(df_data[date_col], errors='coerce')
-        df_2026 = df_data[df_data['Parsed_Date'].dt.year == 2026].copy()
+        
+        # 2026 Filter for Summary
+        df_main_2026 = df_data[df_data['Parsed_Date'].dt.year == 2026].copy()
 
-        # Tabs
-        tab1, tab2, tab3, tab4 = st.tabs(["Performance Summary", "Video Deep Dive", "Shorts Performance", "Strategic AI Roadmap"])
+        # Tabs for Navigation
+        tab1, tab2, tab3 = st.tabs(["Performance Summary", "Video Deep Dive", "Shorts Performance"])
 
         with tab1:
-            # Summary Logic
-            def get_cat_metrics(df_src, cat_name):
-                group = df_src[df_src['Category'] == cat_name]
+            # 5. METRIC AGGREGATION
+            def get_cat_metrics(cat_name):
+                group = df_main_2026[df_main_2026['Category'] == cat_name]
                 total_imps = group[imp_col].sum()
                 avg_ctr = (group[ctr_col] * group[imp_col]).sum() / total_imps if total_imps > 0 else 0
                 return {
@@ -98,13 +92,12 @@ if uploaded_file:
                     "Subscribers": group[subs_col].sum(),
                     "Watch Time": group[watch_col].sum(),
                     "Impressions": total_imps,
-                    "CTR": avg_ctr,
-                    "Views": group[views_col].sum()
+                    "CTR": avg_ctr
                 }
 
-            v_m = get_cat_metrics(df_2026, 'Videos')
-            s_m = get_cat_metrics(df_2026, 'Shorts')
-            l_m = get_cat_metrics(df_2026, 'Live Stream')
+            v_m = get_cat_metrics('Videos')
+            s_m = get_cat_metrics('Shorts')
+            l_m = get_cat_metrics('Live Stream')
 
             total_subs = total_row[subs_col] if total_row is not None else (v_m['Subscribers'] + s_m['Subscribers'] + l_m['Subscribers'])
             other_subs = total_subs - (v_m['Subscribers'] + s_m['Subscribers'] + l_m['Subscribers'])
@@ -123,44 +116,58 @@ if uploaded_file:
             ]
             st.table(pd.DataFrame(comparison_data).set_index("Metric"))
 
-        # ... (Video Deep Dive and Shorts tabs remain the same as previous step) ...
-
-        with tab4:
-            st.markdown("### 🤖 Strategic AI Game Plan")
-            if not api_key:
-                st.warning("Please enter your Gemini API Key in the sidebar to generate the roadmap.")
+        # Helper Function for Ranking Tables
+        def display_rankings(df, metric_col, label, is_ctr=False):
+            sorted_df = df.sort_values(by=metric_col, ascending=False)[[title_col, metric_col]].copy()
+            
+            # Formatting for display
+            display_df = sorted_df.copy()
+            if is_ctr:
+                display_df[metric_col] = display_df[metric_col].map("{:.2f}%".format)
             else:
-                if st.button("Generate Strategic Analysis"):
-                    with st.spinner("Analyzing channel data..."):
-                        # Prepare context for Gemini
-                        # We extract top/bottom performers to give the AI specific data points
-                        top_videos = df_data[df_data['Category'] == 'Videos'].nlargest(3, views_col)[title_col].tolist()
-                        low_ctr_videos = df_data[(df_data['Category'] == 'Videos') & (df_data[views_col] >= 500)].nsmallest(3, ctr_col)[title_col].tolist()
-                        
-                        channel_context = f"""
-                        Analyze this YouTube Channel data and provide a professional game plan.
-                        
-                        DATA SUMMARY (2026):
-                        - Long-form Videos: {v_m['Published']} published, {v_m['Views']} views, {v_m['Subscribers']} subs, {v_m['CTR']:.2f}% avg CTR.
-                        - Shorts: {s_m['Published']} published, {s_m['Views']} views, {s_m['Subscribers']} subs.
-                        - Live Streams: {l_m['Published']} published, {l_m['Views']} views, {l_m['Subscribers']} subs.
-                        
-                        TOP PERFORMERS (By Views): {', '.join(top_videos)}
-                        LOWEST CTR (Min 500 views): {', '.join(low_ctr_videos)}
-                        
-                        REQUESTED STRUCTURE:
-                        1. STOP: What content types or topics are underperforming significantly relative to effort?
-                        2. CONTINUE: What is working best for subscriber conversion and retention?
-                        3. IMPROVE: Which content has high potential but needs packaging (CTR) or retention (Watch Time) fixes?
-                        4. WHY: Back up every claim with the numbers provided above.
-                        """
+                display_df[metric_col] = display_df[metric_col].map("{:,.0f}".format)
 
-                        try:
-                            model = genai.GenerativeModel('gemini-1.5-flash')
-                            response = model.generate_content(channel_context)
-                            st.markdown(response.text)
-                        except Exception as e:
-                            st.error(f"Error generating analysis: {e}")
+            top_5 = display_df.head(5).reset_index(drop=True)
+            top_5.index += 1
+            bottom_5 = display_df.tail(5).iloc[::-1].reset_index(drop=True)
+            bottom_5.index += 1
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                st.success(f"Top 5: {label}")
+                st.dataframe(top_5, use_container_width=True)
+            with c2:
+                st.error(f"Bottom 5: {label}")
+                st.dataframe(bottom_5, use_container_width=True)
+
+        with tab2:
+            st.markdown("### 🔍 Video Analysis (Long-Form)")
+            video_df = df_data[df_data['Category'] == 'Videos'].copy()
+            
+            # Standard Metrics
+            for label, col in {"Views": views_col, "Subscribers": subs_col, "Watch Time": watch_col}.items():
+                st.markdown(f"#### Rank by {label}")
+                display_rankings(video_df, col, label)
+                st.markdown("---")
+            
+            # CTR Metric with specific View Threshold
+            st.markdown("#### Rank by Impressions CTR")
+            st.caption("⚠️ Analysis limited to videos with a minimum of **500 views** to ensure statistical relevance.")
+            ctr_filtered_df = video_df[video_df[views_col] >= 500].copy()
+            
+            if not ctr_filtered_df.empty:
+                display_rankings(ctr_filtered_df, ctr_col, "CTR", is_ctr=True)
+            else:
+                st.warning("No videos found meeting the 500-view threshold for CTR analysis.")
+            st.markdown("---")
+
+        with tab3:
+            st.markdown("### ⚡ Shorts Performance Analysis")
+            shorts_df = df_data[df_data['Category'] == 'Shorts'].copy()
+            for label, col in {"Views": views_col, "Subscribers": subs_col}.items():
+                st.markdown(f"#### Rank by {label}")
+                display_rankings(shorts_df, col, label)
+                st.markdown("---")
 
     else:
-        st.error("Missing required columns.")
+        st.error("Missing required columns. Please ensure you are uploading the 'CONTENT' breakdown CSV.")
